@@ -11,7 +11,7 @@ import awkward as ak
 from collections import Counter,defaultdict
 import traceback
 
-from geometry_parsing.plotting import plot_full_detector_with_hits as plot_full_detector_with_hits
+from src.geometry_parsing.plotting import plot_full_detector_with_hits as plot_full_detector_with_hits
 
 
 
