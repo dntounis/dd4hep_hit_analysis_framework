@@ -21,8 +21,8 @@ python analysis_scripts/occupancy_analysis.py
 
 To-do list:
 
--- debug occupancy for all subdetectors (currently only working for Vertex Barrel and Endcap)
--- timing distribution - study effect of back-scattering
--- Study hit distributions in different time buckets -- deconvolve effects of prompt and backscattered hits
--- Investigate the use of energy thresholds for occupancy calculation
--- For the calorimeters, study the average/total deposited energy of hits per layer and as a function of z
+- debug occupancy for all subdetectors (currently only working for Vertex Barrel and Endcap)
+- timing distribution - study effect of back-scattering
+- Study hit distributions in different time buckets -- deconvolve effects of prompt and backscattered hits
+- Investigate the use of energy thresholds for occupancy calculation
+- For the calorimeters, study the average/total deposited energy of hits per layer and as a function of z
