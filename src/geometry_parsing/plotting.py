@@ -1,4 +1,10 @@
-def plot_full_detector_with_hits(subdetectors_names,subdetectors_rmax,subdetectors_zmax,events_trees):
+import matplotlib.pyplot as plt
+import hist as hist
+import mplhep as hep
+from matplotlib.colors import LogNorm
+from src.hit_analysis.read_hits import read_hits
+
+def plot_full_detector_with_hits(seeds,subdetectors_names,subdetectors_rmax,subdetectors_zmax,events_trees):
     Ndet = len(subdetectors_names)
     #hists = []
     rmax = max(subdetectors_rmax)
@@ -15,7 +21,7 @@ def plot_full_detector_with_hits(subdetectors_names,subdetectors_rmax,subdetecto
 
     for i in range(len(subdetectors_names)):
         print(i, " : ", subdetectors_names[i])
-        x_combined, y_combined,z_combined,phi_combined,r_combined= read_hits(events_trees,subdetectors_names[i])
+        x_combined, y_combined,z_combined,phi_combined,r_combined= read_hits(seeds,events_trees,subdetectors_names[i])
         combined_histogram.fill(z=z_combined, r=r_combined)
 
     # Plot the final combined histogram

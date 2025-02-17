@@ -1,6 +1,4 @@
 
-
-
 class DetectorConfig:
     """Configuration class for different detector types"""
     
@@ -45,13 +43,9 @@ class DetectorConfig:
         return self.cell_sizes['default']
 
 
+def get_detector_configs():
     
-
-
-
-
-# Example configurations for different detectors
-DETECTOR_CONFIGS = {
+    DETECTOR_CONFIGS = {
     'SiVertexBarrel': DetectorConfig(
         name='SiVertexBarrel',
         detector_type='barrel',
@@ -117,23 +111,27 @@ DETECTOR_CONFIGS = {
         detector_type='endcap',
         detector_class='muon'
     )
-}
+    }
+
+    return DETECTOR_CONFIGS    
 
 
+def get_xmls():
+    xmls = {
+        'main_xml': '/fs/ddn/sdf/group/atlas/d/dntounis/C^3/bkg_studies_2023/GuineaPig_July_2024/k4geo/SiD/compact/SiD_o2_v04/SiD_o2_v04.xml',
+        'vertex_barrel_xml': '/fs/ddn/sdf/group/atlas/d/dntounis/C^3/bkg_studies_2023/GuineaPig_July_2024/k4geo/SiD/compact/SiD_o2_v04/SiVertexBarrel_o2_v04.xml',
+        'vertex_endcap_xml': '/fs/ddn/sdf/group/atlas/d/dntounis/C^3/bkg_studies_2023/GuineaPig_July_2024/k4geo/SiD/compact/SiD_o2_v04/SiVertexEndcap_o2_v04.xml',
+        'tracker_barrel_xml': '/fs/ddn/sdf/group/atlas/d/dntounis/C^3/bkg_studies_2023/GuineaPig_July_2024/k4geo/SiD/compact/SiD_o2_v04/SiTrackerBarrel_o2_v04.xml',
+        'tracker_endcap_xml': '/fs/ddn/sdf/group/atlas/d/dntounis/C^3/bkg_studies_2023/GuineaPig_July_2024/k4geo/SiD/compact/SiD_o2_v04/SiTrackerEndcap_o2_v04.xml',
+        'tracker_forward_xml': '/fs/ddn/sdf/group/atlas/d/dntounis/C^3/bkg_studies_2023/GuineaPig_July_2024/k4geo/SiD/compact/SiD_o2_v04/SiTrackerForward_o2_v04.xml',
+        'ecal_barrel_xml': '/fs/ddn/sdf/group/atlas/d/dntounis/C^3/bkg_studies_2023/GuineaPig_July_2024/k4geo/SiD/compact/SiD_o2_v04/ECalBarrel_o2_v04.xml',
+        'ecal_endcap_xml': '/fs/ddn/sdf/group/atlas/d/dntounis/C^3/bkg_studies_2023/GuineaPig_July_2024/k4geo/SiD/compact/SiD_o2_v04/ECalEndcap_o2_v04.xml',
+        'hcal_barrel_xml': '/fs/ddn/sdf/group/atlas/d/dntounis/C^3/bkg_studies_2023/GuineaPig_July_2024/k4geo/SiD/compact/SiD_o2_v04/HCalBarrel_o2_v04.xml',
+        'hcal_endcap_xml': '/fs/ddn/sdf/group/atlas/d/dntounis/C^3/bkg_studies_2023/GuineaPig_July_2024/k4geo/SiD/compact/SiD_o2_v04/HCalEndcap_o2_v04.xml',
+        'beamcal_xml': '/fs/ddn/sdf/group/atlas/d/dntounis/C^3/bkg_studies_2023/GuineaPig_July_2024/k4geo/SiD/compact/SiD_o2_v04/BeamCal_o2_v04.xml',
+        'lumical_xml': '/fs/ddn/sdf/group/atlas/d/dntounis/C^3/bkg_studies_2023/GuineaPig_July_2024/k4geo/SiD/compact/SiD_o2_v04/LumiCal_o2_v04.xml',
+        'muon_barrel_xml': '/fs/ddn/sdf/group/atlas/d/dntounis/C^3/bkg_studies_2023/GuineaPig_July_2024/k4geo/SiD/compact/SiD_o2_v04/MuonBarrel_o2_v04.xml',
+        'muon_endcap_xml': '/fs/ddn/sdf/group/atlas/d/dntounis/C^3/bkg_studies_2023/GuineaPig_July_2024/k4geo/SiD/compact/SiD_o2_v04/MuonEndcap_o2_v04.xml'
+    }
+    return xmls
 
-main_xml = '/fs/ddn/sdf/group/atlas/d/dntounis/C^3/bkg_studies_2023/GuineaPig_July_2024/k4geo/SiD/compact/SiD_o2_v04/SiD_o2_v04.xml'
-
-
-vertex_barrel_xml='/fs/ddn/sdf/group/atlas/d/dntounis/C^3/bkg_studies_2023/GuineaPig_July_2024/k4geo/SiD/compact/SiD_o2_v04/SiVertexBarrel_o2_v04.xml'
-vertex_endcap_xml='/fs/ddn/sdf/group/atlas/d/dntounis/C^3/bkg_studies_2023/GuineaPig_July_2024/k4geo/SiD/compact/SiD_o2_v04/SiVertexEndcap_o2_v04.xml'
-tracker_barrel_xml= '/fs/ddn/sdf/group/atlas/d/dntounis/C^3/bkg_studies_2023/GuineaPig_July_2024/k4geo/SiD/compact/SiD_o2_v04/SiTrackerBarrel_o2_v04.xml'
-tracker_endcap_xml= '/fs/ddn/sdf/group/atlas/d/dntounis/C^3/bkg_studies_2023/GuineaPig_July_2024/k4geo/SiD/compact/SiD_o2_v04/SiTrackerEndcap_o2_v04.xml'
-tracker_forward_xml= '/fs/ddn/sdf/group/atlas/d/dntounis/C^3/bkg_studies_2023/GuineaPig_July_2024/k4geo/SiD/compact/SiD_o2_v04/SiTrackerForward_o2_v04.xml'
-ecal_barrel_xml= '/fs/ddn/sdf/group/atlas/d/dntounis/C^3/bkg_studies_2023/GuineaPig_July_2024/k4geo/SiD/compact/SiD_o2_v04/ECalBarrel_o2_v04.xml'
-ecal_endcap_xml='/fs/ddn/sdf/group/atlas/d/dntounis/C^3/bkg_studies_2023/GuineaPig_July_2024/k4geo/SiD/compact/SiD_o2_v04/ECalEndcap_o2_v04.xml'
-hcal_barrel_xml= '/fs/ddn/sdf/group/atlas/d/dntounis/C^3/bkg_studies_2023/GuineaPig_July_2024/k4geo/SiD/compact/SiD_o2_v04/HCalBarrel_o2_v04.xml'
-hcal_endcap_xml= '/fs/ddn/sdf/group/atlas/d/dntounis/C^3/bkg_studies_2023/GuineaPig_July_2024/k4geo/SiD/compact/SiD_o2_v04/HCalEndcap_o2_v04.xml'
-beamcal_xml=  '/fs/ddn/sdf/group/atlas/d/dntounis/C^3/bkg_studies_2023/GuineaPig_July_2024/k4geo/SiD/compact/SiD_o2_v04/BeamCal_o2_v04.xml'
-lumical_xml=  '/fs/ddn/sdf/group/atlas/d/dntounis/C^3/bkg_studies_2023/GuineaPig_July_2024/k4geo/SiD/compact/SiD_o2_v04/LumiCal_o2_v04.xml'
-muon_barrel_xml=  '/fs/ddn/sdf/group/atlas/d/dntounis/C^3/bkg_studies_2023/GuineaPig_July_2024/k4geo/SiD/compact/SiD_o2_v04/MuonBarrel_o2_v04.xml'
-muon_endcap_xml=  '/fs/ddn/sdf/group/atlas/d/dntounis/C^3/bkg_studies_2023/GuineaPig_July_2024/k4geo/SiD/compact/SiD_o2_v04/MuonEndcap_o2_v04.xml'

@@ -1,4 +1,5 @@
 
+
 class BitFieldElement:
     """Implementation of DD4hep's BitFieldElement for decoding cellID fields"""
     def __init__(self, name, offset, width):

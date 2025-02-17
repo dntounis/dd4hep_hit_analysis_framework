@@ -1,3 +1,9 @@
+import xml.etree.ElementTree as ET
+import numpy as np 
+import math 
+
+
+
 def evaluate_constant_expression(expr_str, constants):
     """
     Evaluate an expression that may contain constant references and basic math.
@@ -119,7 +125,7 @@ def handle_layer_id(layer_elem, repeat_index=0):
     
     return None
 
-def _parse_layer_sensitive_slices(layer_elem):
+def parse_layer_sensitive_slices(layer_elem):
     """
     Count number of sensitive slices in a layer.
     
@@ -136,7 +142,7 @@ def _parse_layer_sensitive_slices(layer_elem):
     return len(sensitive_slices)
 
 
-def _parse_calorimeter_geometry(detector, config, geometry_info, constants):
+def parse_calorimeter_geometry(detector, config, geometry_info, constants):
     """Parse calorimeter-type detector geometry"""
     # Get detector dimensions
     prefix = config.name
@@ -157,7 +163,7 @@ def _parse_calorimeter_geometry(detector, config, geometry_info, constants):
     for layer_elem in detector.findall('.//layer'):
         # Handle repeats and layer numbering
         repeat = parse_repeat_value(layer_elem, constants)
-        n_sensitive = _parse_layer_sensitive_slices(layer_elem)
+        n_sensitive = parse_layer_sensitive_slices(layer_elem)
         
         # Get cell size
         cell_size = config.get_cell_size()
@@ -319,8 +325,6 @@ def extract_module_dimensions(detector_elem):
     
     return dims
 
-
-
 def calculate_module_position(layer_info, module_idx, geometry_type='barrel'):
     """Updated module position calculation"""
     if geometry_type == 'barrel':
@@ -379,6 +383,8 @@ def calculate_module_position(layer_info, module_idx, geometry_type='barrel'):
         return (x, y, z, phi)
     
     return None
+
+
 
 def parse_detector_constants(main_xml_file, detector_name=None):
     """Parse detector constants with dependency resolution"""
@@ -702,7 +708,7 @@ def parse_value(value_str, constants=None):
 
 
 
-def _parse_tracker_module(module, config, constants):
+def parse_tracker_module(module, config, constants):
     """Parse a tracker module definition"""
     trd = module.find('trd')
     if trd is not None:
@@ -744,7 +750,7 @@ def _parse_tracker_module(module, config, constants):
         
     return None
 
-def _parse_endcap_tracker_ring(ring, config, constants):
+def parse_endcap_tracker_ring(ring, config, constants):
     """Parse a tracker endcap ring"""
     r_str = ring.get('r')
     zstart_str = ring.get('zstart')
@@ -763,7 +769,7 @@ def _parse_endcap_tracker_ring(ring, config, constants):
     }
 
 
-def _parse_barrel_geometry(detector, config, geometry_info, constants):
+def parse_barrel_geometry(detector, config, geometry_info, constants):
     """Parse barrel-type detector geometry"""
     # First parse modules
     modules = {}
@@ -879,7 +885,7 @@ def _parse_barrel_geometry(detector, config, geometry_info, constants):
         geometry_info['layers'][layer_id] = layer_info
 
 
-def _parse_endcap_geometry(detector, config, geometry_info, constants):
+def parse_endcap_geometry(detector, config, geometry_info, constants):
     """
     Parse endcap-type detector geometry with robust error handling.
     
@@ -1174,3 +1180,25 @@ def process_calo_hit(hit_data, layer_info, is_barrel=True):
     except Exception as e:
         print(f"Warning: Error calculating cell indices: {str(e)}")
         return (layer, 0, 0)  # Fallback
+    
+
+def parse_forward_geometry(detector, config, geometry_info, constants):
+    """
+    Minimal forward geometry parser.
+    Reads the <dimensions> element and stores some dummy values.
+    """
+    dims = detector.find("dimensions")
+    if dims is None:
+        raise ValueError("No <dimensions> element found for forward detector")
+    geometry_info["inner_r"] = parse_value(dims.get("inner_r"), constants)
+    geometry_info["outer_r"] = parse_value(dims.get("outer_r"), constants)
+    geometry_info["inner_z"] = parse_value(dims.get("inner_z"), constants)
+    geometry_info["outer_z"] = parse_value(dims.get("outer_z"), constants)
+    geometry_info["total_cells"] = 1  # dummy
+
+def parse_muon_geometry(detector, config, geometry_info, constants):
+    """
+    Minimal muon geometry parser.
+    """
+    geometry_info["muon_stub"] = True
+    geometry_info["total_cells"] = 1

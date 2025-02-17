@@ -1,3 +1,13 @@
+import awkward as ak
+import numpy as np
+from collections import Counter
+
+from src.geometry_parsing.k4geo_parsers import find_matching_ring,calculate_module_position
+from src.segmentation.pixelizers import calculate_local_coordinates,get_pixel_indices,get_pixel_id
+from src.geometry_parsing.geometry_info import get_geometry_info
+from src.geometry_parsing.cellid_decoders import decode_dd4hep_cellid
+
+
 def process_hit(hit_data, detector_name, layer_info, config):
     """
     Process a single hit to determine its pixel/cell location.
@@ -144,7 +154,7 @@ def calculate_layer_occupancy(layer_cells, total_cells, threshold):
 
 
 def analyze_detector_hits(events_trees, detector_name, config, hit_thresholds=None, 
-                        geometry_file=None, constants=None, main_xml=None):
+                        geometry_file=None, constants=None, main_xml=None, remove_zeros=True):
     """
     Analyze hits with improved coordinate handling for different detector types.
     """
@@ -160,13 +170,43 @@ def analyze_detector_hits(events_trees, detector_name, config, hit_thresholds=No
     
     # Read event arrays
     try:
-        arrays = [events_tree.arrays([cellid_branch] + pos_branches)
-                  for events_tree in events_trees]
-        cellids = [array[cellid_branch] for array in arrays]
-        cellids_combined = ak.concatenate([ak.flatten(arr) for arr in cellids])
-        x = ak.concatenate([ak.flatten(array[pos_branches[0]]) for array in arrays])
-        y = ak.concatenate([ak.flatten(array[pos_branches[1]]) for array in arrays])
-        z = ak.concatenate([ak.flatten(array[pos_branches[2]]) for array in arrays])
+
+        filtered_cellids = []
+        filtered_x = []
+        filtered_y = []
+        filtered_z = []
+
+
+        for events_tree in events_trees:
+            array = events_tree.arrays([cellid_branch] + pos_branches)
+
+            cellids = array[cellid_branch]
+            x = array[pos_branches[0]]
+            y = array[pos_branches[1]]
+            z = array[pos_branches[2]]
+
+            # Apply filtering: Keep events that contain at least one non-zero hit
+            if remove_zeros:
+                non_zero_mask = ak.any((x != 0.0) | (y != 0.0) | (z != 0.0), axis=1)
+                cellids = cellids[non_zero_mask]
+                x = x[non_zero_mask]
+                y = y[non_zero_mask]
+                z = z[non_zero_mask]
+
+            # Flatten arrays and store them
+            filtered_cellids.append(ak.flatten(cellids))
+            filtered_x.append(ak.flatten(x))
+            filtered_y.append(ak.flatten(y))
+            filtered_z.append(ak.flatten(z))
+
+
+        # Concadtenate filtered results across all events
+        cellids_combined = ak.concatenate(filtered_cellids)
+        x_flat = ak.concatenate(filtered_x)
+        y_flat = ak.concatenate(filtered_y)
+        z_flat = ak.concatenate(filtered_z)
+
+
     except Exception as e:
         print(f"Error reading event data for {detector_name}: {e}")
         return None
@@ -182,7 +222,10 @@ def analyze_detector_hits(events_trees, detector_name, config, hit_thresholds=No
     
     pixel_hits = {}
     # Use "config" (not detector_config)
-    for cellid, hit_x, hit_y, hit_z in zip(cellids_combined, x, y, z):
+    for cellid, hit_x, hit_y, hit_z in zip(cellids_combined, x_flat, y_flat, z_flat):
+        if remove_zeros and hit_x == 0 and hit_y == 0 and hit_z == 0:
+            continue  # Skip zero-position hits
+    
         try:
             decoded = decode_dd4hep_cellid(cellid, detector_name)
             # Call our unified function; note we pass config (not detector_config)
@@ -235,9 +278,9 @@ def analyze_detector_hits(events_trees, detector_name, config, hit_thresholds=No
         'detector_class': config.detector_class,
         'threshold_stats': stats,
         'positions': {
-            'r': np.sqrt(x**2 + y**2),
-            'phi': np.arctan2(y, x),
-            'z': z
+            'r': np.sqrt(x_flat**2 + y_flat**2),
+            'phi': np.arctan2(y_flat, x_flat),
+            'z': z_flat
         }
     }
 

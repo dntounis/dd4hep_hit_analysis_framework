@@ -13,8 +13,7 @@ import traceback
 
 from src.geometry_parsing.plotting import plot_full_detector_with_hits as plot_full_detector_with_hits
 
-
-
+from src.hit_analysis.read_hits import read_hits
 
 # List of seeds
 #seeds = [527875,733579,360177,286038,479728]  # Replace with your actual list of seeds
@@ -118,7 +117,12 @@ subdetectors_zmax = [3200,1900,1900,3150,3100,1850,3150,6150,3150,1700,1000,75,2
 # i=12 -> SiVertexEndcapHits
 
 
+
+#2d plot
+plot_full_detector_with_hits(seeds,subdetectors_names,subdetectors_rmax,subdetectors_zmax,events_trees)
+
 # ECalBarrelHits
 subdet_i=1
-x_combined, y_combined,z_combined,phi_combined,r_combined= read_hits(events_trees,subdetectors_names[subdet_i])
+x_combined, y_combined,z_combined,phi_combined,r_combined= read_hits(seeds,events_trees,subdetectors_names[subdet_i])
 hist.Hist.new.Reg(200, -subdetectors_zmax[subdet_i], subdetectors_zmax[subdet_i], name="z").Reg(100, 0, subdetectors_rmax[subdet_i], name="r").Int64().fill(z_combined, r_combined).plot2d()
+

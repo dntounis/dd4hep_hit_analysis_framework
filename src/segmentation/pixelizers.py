@@ -1,3 +1,5 @@
+import numpy as np
+
 def calculate_local_coordinates(hit_pos, module_pos, module_orientation, geometry_type='barrel'):
     """
     Convert hit position to local coordinates within a module.

@@ -1,4 +1,8 @@
-def read_hits(events_trees,subdetector):
+import awkward as ak
+import numpy as np
+
+
+def read_hits(seeds,events_trees,subdetector):
     
     
         arrays = [

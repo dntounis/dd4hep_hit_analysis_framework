@@ -15,7 +15,12 @@ import traceback
 from src import detector_config
 
 from src.hit_analysis.plotting import analyze_detectors_and_plot
-from src.geometry_parsing.geometry_parsing import parse_detector_constants, get_geometry_info
+from src.geometry_parsing.k4geo_parsers import parse_detector_constants
+from src.geometry_parsing.geometry_info import get_geometry_info
+
+from src.detector_config import get_detector_configs, get_xmls
+
+
 
 
 # List of seeds
@@ -100,6 +105,23 @@ events_trees = [uproot.open(base_path + filename_pattern.format(seed)+ ':events'
 
 events_trees[0].keys()
 
+DETECTOR_CONFIGS = get_detector_configs()
+xmls = get_xmls()
+main_xml = xmls['main_xml']
+vertex_barrel_xml = xmls['vertex_barrel_xml']
+vertex_endcap_xml = xmls['vertex_endcap_xml']
+tracker_barrel_xml = xmls['tracker_barrel_xml']
+tracker_endcap_xml = xmls['tracker_endcap_xml']
+tracker_forward_xml = xmls['tracker_forward_xml']
+ecal_barrel_xml = xmls['ecal_barrel_xml']
+ecal_endcap_xml = xmls['ecal_endcap_xml']
+hcal_barrel_xml = xmls['hcal_barrel_xml']
+hcal_endcap_xml = xmls['hcal_endcap_xml']
+beamcal_xml = xmls['beamcal_xml']
+lumical_xml = xmls['lumical_xml']
+muon_barrel_xml = xmls['muon_barrel_xml']
+muon_endcap_xml = xmls['muon_endcap_xml']
+
 
 # Try each detector in turn
 # Try analyzing all detectors again
@@ -134,6 +156,7 @@ print("\nAnalyzing detectors:")
 for detector_name, xml_file in detectors_to_analyze:
     print(f"\nAnalyzing {detector_name}...")
     try:
+
         detector_config = DETECTOR_CONFIGS[detector_name]
         # Pass detector name to get specific debug info
         constants = parse_detector_constants(main_xml, detector_name)
@@ -158,8 +181,7 @@ detectors_to_analyze = [
 ]
 
 
-analyze_detectors_and_plot(detectors_to_analyze=detectors_to_analyze)
-
+analyze_detectors_and_plot(DETECTOR_CONFIGS=DETECTOR_CONFIGS,detectors_to_analyze=detectors_to_analyze,event_trees=events_trees,main_xml=main_xml,remove_zeros=1)
 
 # detectors_to_analyze = [
 #     ('SiTrackerBarrel', tracker_barrel_xml),

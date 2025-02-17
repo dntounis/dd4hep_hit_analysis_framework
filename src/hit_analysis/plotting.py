@@ -1,3 +1,13 @@
+import numpy as np
+import matplotlib.pyplot as plt
+import awkward as ak
+import traceback
+
+from src.detector_config import get_detector_configs, get_xmls
+from src.geometry_parsing.geometry_info import get_geometry_info
+
+from src.hit_analysis.occupancy import analyze_detector_hits
+from src.geometry_parsing.k4geo_parsers import parse_detector_constants 
 
 def plot_hit_distribution(stats, output_file=None):
     """
@@ -74,26 +84,44 @@ def plot_occupancy_analysis(stats, geometry_info, output_prefix=None):
     ax1.legend()
     
     # 2. R-Phi hit distribution
+    # 2. R-Phi hit distribution
     ax2 = fig.add_subplot(gs[0, 1], projection='polar')
     # Convert awkward arrays to numpy arrays
     phi_vals = ak.to_numpy(stats['positions']['phi'])
     r_vals = ak.to_numpy(stats['positions']['r'])
-    hist, _, _ = np.histogram2d(phi_vals, r_vals, bins=[50, 20])
+
+    # Create the edges first
     r_edges = np.linspace(0, max(stats['positions']['r']), 21)
     phi_edges = np.linspace(-np.pi, np.pi, 51)
+
+    # Create histogram with the same number of bins as your edges
+    hist, _, _ = np.histogram2d(phi_vals, r_vals, 
+                            bins=[phi_edges, r_edges])  # Use the same edges here
+
+    # Create meshgrid
     R, PHI = np.meshgrid(r_edges[:-1], phi_edges[:-1])
+
+    # Create a colormap that uses purple for zero values
+    pcm = ax2.pcolormesh(PHI, R, hist, 
+                        shading='auto', 
+                        cmap='viridis',
+                        vmin=0,
+                        edgecolors='none')
+    ax2.set_facecolor('#3F007D')
     
-    pcm = ax2.pcolormesh(PHI, R, hist, shading='auto')
-    ax2.set_title('Hit Distribution (R-Phi)')
-    plt.colorbar(pcm, ax=ax2, label='Hits')
-    
+
+
+
+
+
     # 3. R-Z hit distribution
     ax3 = fig.add_subplot(gs[1, :])
     # Convert awkward arrays to numpy arrays
     z_vals = ak.to_numpy(stats['positions']['z'])
     r_vals = ak.to_numpy(stats['positions']['r'])
-    hist, xedges, yedges = np.histogram2d(z_vals, r_vals, bins=[100, 20])
+    hist, xedges, yedges = np.histogram2d(z_vals, r_vals, bins=[100, 30])
     
+
     pcm = ax3.pcolormesh(xedges[:-1], yedges[:-1], hist.T, shading='auto')
     ax3.set_xlabel('Z [mm]')
     ax3.set_ylabel('R [mm]')
@@ -104,6 +132,7 @@ def plot_occupancy_analysis(stats, geometry_info, output_prefix=None):
     
     if output_prefix:
         plt.savefig(f'{output_prefix}_occupancy_analysis.png')
+        plt.savefig(f'{output_prefix}_occupancy_analysis.pdf')
     plt.show()
 
 
@@ -160,6 +189,7 @@ def plot_detector_analysis(stats, geometry_info, detector_name, output_prefix=No
     
     if output_prefix:
         plt.savefig(f'{output_prefix}_{detector_name}_analysis.png')
+        plt.savefig(f'{output_prefix}_{detector_name}_analysis.pdf')
     plt.show()
                 
                 
@@ -184,13 +214,15 @@ def print_occupancy_statistics(results, geometry_info):
 
 
 
-def analyze_detectors_and_plot(detectors_to_analyze=None):
+def analyze_detectors_and_plot(DETECTOR_CONFIGS=None,detectors_to_analyze=None,event_trees=None,main_xml=None,remove_zeros=True):
 
         print("\nAnalyzing detectors:")
         for detector_name, xml_file in detectors_to_analyze:
             print(f"\nAnalyzing {detector_name}...")
             try:
                 detector_config = DETECTOR_CONFIGS[detector_name]
+                xmls = get_xmls()
+                main_xml = xmls['main_xml']
                 # Pass detector name to get specific debug info
                 constants = parse_detector_constants(main_xml, detector_name)
                 geometry_info = get_geometry_info(xml_file, detector_config, constants=constants)
@@ -206,7 +238,7 @@ def analyze_detectors_and_plot(detectors_to_analyze=None):
         
                 # Define thresholds to analyze
                 hit_thresholds = [1, 2, 3, 4, 5,6,7,8,9, 10]
-                stats = analyze_detector_hits(events_trees,detector_name=detector_name,config=detector_config, hit_thresholds=hit_thresholds, geometry_file=xml_file,constants=constants,main_xml=main_xml)
+                stats = analyze_detector_hits(event_trees,detector_name=detector_name,config=detector_config, hit_thresholds=hit_thresholds, geometry_file=xml_file,constants=constants,main_xml=main_xml,remove_zeros=True)
                 #plot_detector_analysis(stats, geometry_info, detector_name=detector_name, output_prefix=None)
                 
                 # Create visualizations

@@ -11,6 +11,9 @@ import awkward as ak
 from collections import Counter,defaultdict
 import traceback
 
+from src.hit_analysis.read_hits import read_hits
+
+
 
 # List of seeds
 #seeds = [527875,733579,360177,286038,479728]  # Replace with your actual list of seeds
@@ -60,22 +63,16 @@ seeds_batch_4 = [
 ]
 
 
-
-
 seeds = [seeds_batch_1,seeds_batch_2,seeds_batch_3,seeds_batch_4]
-
 
 
 #seeds = [seeds_batch_1,seeds_batch_2]
 #seeds = [seeds_batch_1]
 seeds = ak.flatten(seeds)
 
-
 #seeds=[802239]
 
 print(len(seeds))
-
-
 
 
 # Directory path and filename pattern
@@ -112,14 +109,6 @@ subdetectors_zmax = [3200,1900,1900,3150,3100,1850,3150,6150,3150,1700,1000,75,2
 # i=10 -> SiTrackerForwardHits
 # i=11 -> SiVertexBarrelHits
 # i=12 -> SiVertexEndcapHits
-
-
-# ECalBarrelHits
-subdet_i=1
-x_combined, y_combined,z_combined,phi_combined,r_combined= read_hits(events_trees,subdetectors_names[subdet_i])
-hist.Hist.new.Reg(200, -subdetectors_zmax[subdet_i], subdetectors_zmax[subdet_i], name="z").Reg(100, 0, subdetectors_rmax[subdet_i], name="r").Int64().fill(z_combined, r_combined).plot2d()
-
-
 
 n_phis = [4712, 7226, 11310, 15268, 19163]
 n_z = 6300
@@ -163,7 +152,7 @@ print(layers)
 print(n_zs)
 
 i = 11 #SiVertexBarrelHits
-x_combined, y_combined,z_combined,phi_combined,r_combined= read_hits(events_trees,subdetectors_names[i])
+x_combined, y_combined,z_combined,phi_combined,r_combined= read_hits(seeds,events_trees,subdetectors_names[i])
 #print(r_combined)
 
 for layer in layers[1:]:
@@ -257,3 +246,6 @@ ax.yaxis.get_major_locator().set_params(numticks=99)
 ax.yaxis.get_minor_locator().set_params(numticks=99, subs=0.1*np.arange(1, 11))
 
 ax.legend()
+
+plt.show()
+fig.savefig("simple_occupancy.pdf")

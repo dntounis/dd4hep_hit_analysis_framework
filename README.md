@@ -6,6 +6,6 @@ Install using:
 
 ```
 python setup.py install
-pip install .
+pip install -e .
 
 ```
