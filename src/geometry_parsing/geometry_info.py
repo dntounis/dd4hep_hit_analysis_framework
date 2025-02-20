@@ -24,6 +24,7 @@ def get_geometry_info(xml_file, config, constants=None, main_xml=None):
         
         # Initialize geometry info
         geometry_info = {
+            'detector_name': config.name,
             'detector_type': config.detector_type,
             'layers': {},
             'total_cells': 0

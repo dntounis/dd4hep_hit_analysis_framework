@@ -103,7 +103,7 @@ events_trees = [uproot.open(base_path + filename_pattern.format(seed)+ ':events'
 
 # Now 'files' contains the opened root files for each seed
 
-events_trees[0].keys()
+print(events_trees[0].keys())
 
 DETECTOR_CONFIGS = get_detector_configs()
 xmls = get_xmls()
@@ -152,6 +152,7 @@ for name, value in sorted(constants.items()):
     if any(det in name for det in ['Vertex', 'Tracker', 'ECal', 'HCal', 'Muon', 'BeamCal', 'LumiCal']):
         print(f"{name}: {value}")
 
+
 print("\nAnalyzing detectors:")
 for detector_name, xml_file in detectors_to_analyze:
     print(f"\nAnalyzing {detector_name}...")
@@ -175,13 +176,15 @@ for detector_name, xml_file in detectors_to_analyze:
 
 
 
-detectors_to_analyze = [
-    ('SiVertexBarrel', vertex_barrel_xml),
-    ('SiVertexEndcap', vertex_endcap_xml)
-]
+time_cut = -1 #100 # in ns
+
+# detectors_to_analyze = [
+#     ('SiVertexBarrel', vertex_barrel_xml),
+#     ('SiVertexEndcap', vertex_endcap_xml)
+# ]
 
 
-analyze_detectors_and_plot(DETECTOR_CONFIGS=DETECTOR_CONFIGS,detectors_to_analyze=detectors_to_analyze,event_trees=events_trees,main_xml=main_xml,remove_zeros=1)
+# analyze_detectors_and_plot(DETECTOR_CONFIGS=DETECTOR_CONFIGS,detectors_to_analyze=detectors_to_analyze,event_trees=events_trees,main_xml=main_xml,remove_zeros=1,time_cut=time_cut)
 
 # detectors_to_analyze = [
 #     ('SiTrackerBarrel', tracker_barrel_xml),
@@ -190,29 +193,32 @@ analyze_detectors_and_plot(DETECTOR_CONFIGS=DETECTOR_CONFIGS,detectors_to_analyz
 # ]
 
 
-# analyze_detectors_and_plot(detectors_to_analyze=detectors_to_analyze)
-
-# detectors_to_analyze = [
-#     ('ECalBarrel', ecal_barrel_xml),
-#     ('ECalEndcap', ecal_endcap_xml),
-#     ('HCalBarrel', hcal_barrel_xml),
-#     ('HCalEndcap', hcal_endcap_xml)
-# ]
-
-# analyze_detectors_and_plot(detectors_to_analyze=detectors_to_analyze)
+#analyze_detectors_and_plot(DETECTOR_CONFIGS=DETECTOR_CONFIGS,detectors_to_analyze=detectors_to_analyze,event_trees=events_trees,main_xml=main_xml,remove_zeros=1,time_cut=time_cut)
 
 
-# detectors_to_analyze = [
-#     ('MuonBarrel', muon_barrel_xml),
-#     ('MuonEndcap', muon_endcap_xml)
-# ]
+detectors_to_analyze = [
+    ('ECalBarrel', ecal_barrel_xml),
+    ('ECalEndcap', ecal_endcap_xml),
+    ('HCalBarrel', hcal_barrel_xml),
+    ('HCalEndcap', hcal_endcap_xml)
+]
 
-# analyze_detectors_and_plot(detectors_to_analyze=detectors_to_analyze)
+analyze_detectors_and_plot(DETECTOR_CONFIGS=DETECTOR_CONFIGS,detectors_to_analyze=detectors_to_analyze,event_trees=events_trees,main_xml=main_xml,remove_zeros=1,time_cut=time_cut)
 
 
-# detectors_to_analyze = [
-#     ('BeamCal', beamcal_xml),
-#     ('LumiCal', lumical_xml)
-# ]
+detectors_to_analyze = [
+    ('MuonBarrel', muon_barrel_xml),
+    ('MuonEndcap', muon_endcap_xml)
+]
 
 # analyze_detectors_and_plot(detectors_to_analyze=detectors_to_analyze)
+analyze_detectors_and_plot(DETECTOR_CONFIGS=DETECTOR_CONFIGS,detectors_to_analyze=detectors_to_analyze,event_trees=events_trees,main_xml=main_xml,remove_zeros=1,time_cut=time_cut)
+
+
+detectors_to_analyze = [
+    ('BeamCal', beamcal_xml),
+    ('LumiCal', lumical_xml)
+]
+
+# analyze_detectors_and_plot(detectors_to_analyze=detectors_to_analyze)
+analyze_detectors_and_plot(DETECTOR_CONFIGS=DETECTOR_CONFIGS,detectors_to_analyze=detectors_to_analyze,event_trees=events_trees,main_xml=main_xml,remove_zeros=1,time_cut=time_cut)

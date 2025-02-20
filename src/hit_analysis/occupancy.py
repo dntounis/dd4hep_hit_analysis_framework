@@ -8,6 +8,8 @@ from src.geometry_parsing.geometry_info import get_geometry_info
 from src.geometry_parsing.cellid_decoders import decode_dd4hep_cellid
 
 
+
+
 def process_hit(hit_data, detector_name, layer_info, config):
     """
     Process a single hit to determine its pixel/cell location.
@@ -154,7 +156,7 @@ def calculate_layer_occupancy(layer_cells, total_cells, threshold):
 
 
 def analyze_detector_hits(events_trees, detector_name, config, hit_thresholds=None, 
-                        geometry_file=None, constants=None, main_xml=None, remove_zeros=True):
+                        geometry_file=None, constants=None, main_xml=None, remove_zeros=True, time_cut=-1):
     """
     Analyze hits with improved coordinate handling for different detector types.
     """
@@ -163,11 +165,17 @@ def analyze_detector_hits(events_trees, detector_name, config, hit_thresholds=No
     
     # Build branch names
     hits_prefix = f"{detector_name}Hits"
+    hits_contrib_prefix = f"{detector_name}HitsContributions"
+
     cellid_branch = f"{hits_prefix}/{hits_prefix}.cellID"
     pos_branches = [f"{hits_prefix}/{hits_prefix}.position.x",
                     f"{hits_prefix}/{hits_prefix}.position.y",
                     f"{hits_prefix}/{hits_prefix}.position.z"]
     
+    time_branch = f"{hits_prefix}/{hits_prefix}.time" if detector_name=="SiVertexBarrel" or detector_name=="SiVertexEndcap" or detector_name=="SiTrackerBarrel" or detector_name=="SiTrackerEndcap" or detector_name=="SiTrackerForward" else  f"{hits_contrib_prefix}/{hits_contrib_prefix}.time"
+
+
+
     # Read event arrays
     try:
 
@@ -175,15 +183,18 @@ def analyze_detector_hits(events_trees, detector_name, config, hit_thresholds=No
         filtered_x = []
         filtered_y = []
         filtered_z = []
+        filtered_t = []
+
 
 
         for events_tree in events_trees:
-            array = events_tree.arrays([cellid_branch] + pos_branches)
+            array = events_tree.arrays([cellid_branch] + pos_branches + [time_branch])
 
             cellids = array[cellid_branch]
             x = array[pos_branches[0]]
             y = array[pos_branches[1]]
             z = array[pos_branches[2]]
+            time = array[time_branch]
 
             # Apply filtering: Keep events that contain at least one non-zero hit
             if remove_zeros:
@@ -193,19 +204,33 @@ def analyze_detector_hits(events_trees, detector_name, config, hit_thresholds=No
                 y = y[non_zero_mask]
                 z = z[non_zero_mask]
 
+
+            # time cut
+            if time_cut > 0:
+                
+                print("Analysis occupancy for time_cut = ", time_cut)
+
+                time_mask = time < time_cut
+
+                cellids = cellids[time_mask]
+                x = x[time_mask]
+                y = y[time_mask]
+                z = z[time_mask]
+                time = time[time_mask]
+
             # Flatten arrays and store them
             filtered_cellids.append(ak.flatten(cellids))
             filtered_x.append(ak.flatten(x))
             filtered_y.append(ak.flatten(y))
             filtered_z.append(ak.flatten(z))
-
+            filtered_t.append(ak.flatten(time))
 
         # Concadtenate filtered results across all events
         cellids_combined = ak.concatenate(filtered_cellids)
         x_flat = ak.concatenate(filtered_x)
         y_flat = ak.concatenate(filtered_y)
         z_flat = ak.concatenate(filtered_z)
-
+        t_flat = ak.concatenate(filtered_t)
 
     except Exception as e:
         print(f"Error reading event data for {detector_name}: {e}")
@@ -276,12 +301,15 @@ def analyze_detector_hits(events_trees, detector_name, config, hit_thresholds=No
     return {
         'detector_name': detector_name,
         'detector_class': config.detector_class,
+        'time_cut': time_cut,
+        'times': t_flat,
         'threshold_stats': stats,
         'positions': {
             'r': np.sqrt(x_flat**2 + y_flat**2),
             'phi': np.arctan2(y_flat, x_flat),
             'z': z_flat
         }
+
     }
 
      

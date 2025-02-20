@@ -142,71 +142,306 @@ def parse_layer_sensitive_slices(layer_elem):
     return len(sensitive_slices)
 
 
+# def parse_calorimeter_geometry(detector, config, geometry_info, constants):
+#     """Parse calorimeter-type detector geometry"""
+#     # Get detector dimensions
+#     prefix = config.name
+    
+#     rmin = constants.get(f'{prefix}_rmin')
+#     rmax = constants.get(f'{prefix}_rmax')
+    
+#     if prefix.endswith('Barrel'):
+#         half_length = constants.get(f'{prefix}_half_length')
+#         z_length = 2 * half_length if half_length else None
+#     else:
+#         zmin = constants.get(f'{prefix}_zmin')
+#         zmax = constants.get(f'{prefix}_zmax')
+#         z_length = zmax - zmin if zmin and zmax else None
+    
+#     # Process layers
+#     layer_count = 0
+#     for layer_elem in detector.findall('.//layer'):
+#         # Handle repeats and layer numbering
+#         repeat = parse_repeat_value(layer_elem, constants)
+#         n_sensitive = parse_layer_sensitive_slices(layer_elem)
+        
+#         # Get cell size
+#         cell_size = config.get_cell_size()
+        
+#         # Calculate cells per layer base
+#         if rmin and rmax and z_length:
+#             if prefix.endswith('Barrel'):
+#                 # For barrel: circumference * length
+#                 circumference = 2 * np.pi * ((rmax + rmin) / 2)
+#                 cells_in_phi = int(circumference / cell_size['x'])
+#                 cells_in_z = int(z_length / cell_size['y'])
+#                 cells_per_layer = cells_in_phi * cells_in_z
+#             else:
+#                 # For endcap: area of disk
+#                 area = np.pi * (rmax**2 - rmin**2)
+#                 cells_per_layer = int(area / (cell_size['x'] * cell_size['y']))
+            
+#             # Process each repeat
+#             for r in range(repeat):
+#                 layer_id = handle_layer_id(layer_elem, r)
+#                 if layer_id is not None:
+#                     total_cells = cells_per_layer * n_sensitive
+                    
+#                     layer_info = {
+#                         'rmin': rmin,
+#                         'rmax': rmax,
+#                         'cells_per_layer': cells_per_layer,
+#                         'sensitive_slices': n_sensitive,
+#                         'total_cells': total_cells,
+#                         'repeat_group': layer_count,
+#                         'repeat_number': r
+#                     }
+                    
+#                     if prefix.endswith('Barrel'):
+#                         layer_info['z_length'] = z_length
+#                     else:
+#                         layer_info['zmin'] = zmin
+#                         layer_info['zmax'] = zmax
+                    
+#                     geometry_info['layers'][layer_id] = layer_info
+#                     geometry_info['total_cells'] += total_cells
+                    
+#                     layer_count += 1
+
+
 def parse_calorimeter_geometry(detector, config, geometry_info, constants):
     """Parse calorimeter-type detector geometry"""
     # Get detector dimensions
     prefix = config.name
     
+    # Get basic dimensions
     rmin = constants.get(f'{prefix}_rmin')
     rmax = constants.get(f'{prefix}_rmax')
     
     if prefix.endswith('Barrel'):
         half_length = constants.get(f'{prefix}_half_length')
         z_length = 2 * half_length if half_length else None
+        geometry_info.update({
+            'rmin': rmin,
+            'rmax': rmax,
+            'z_length': z_length
+        })
     else:
         zmin = constants.get(f'{prefix}_zmin')
         zmax = constants.get(f'{prefix}_zmax')
-        z_length = zmax - zmin if zmin and zmax else None
+        geometry_info.update({
+            'rmin': rmin,
+            'rmax': rmax,
+            'zmin': zmin,
+            'zmax': zmax
+        })
     
     # Process layers
     layer_count = 0
     for layer_elem in detector.findall('.//layer'):
-        # Handle repeats and layer numbering
-        repeat = parse_repeat_value(layer_elem, constants)
-        n_sensitive = parse_layer_sensitive_slices(layer_elem)
+        # Get layer info with proper repeat handling
+        layer_info = parse_calorimeter_layer(layer_elem, constants)
+        if not layer_info:
+            continue
         
-        # Get cell size
-        cell_size = config.get_cell_size()
+        # Handle repeats
+        repeat = layer_info['repeat']
         
-        # Calculate cells per layer base
-        if rmin and rmax and z_length:
-            if prefix.endswith('Barrel'):
-                # For barrel: circumference * length
-                circumference = 2 * np.pi * ((rmax + rmin) / 2)
-                cells_in_phi = int(circumference / cell_size['x'])
-                cells_in_z = int(z_length / cell_size['y'])
-                cells_per_layer = cells_in_phi * cells_in_z
-            else:
-                # For endcap: area of disk
-                area = np.pi * (rmax**2 - rmin**2)
-                cells_per_layer = int(area / (cell_size['x'] * cell_size['y']))
+        # Calculate cells for each repeat
+        if config.detector_type == 'barrel':
+            # For barrel: circumference * length
+            circumference = 2 * np.pi * ((rmax + rmin) / 2)
+            cell_size = config.get_cell_size()
+            cells_in_phi = int(circumference / cell_size['x'])
+            cells_in_z = int(z_length / cell_size['y'])
+            cells_per_layer = cells_in_phi * cells_in_z
+        else:
+            # For endcap: area of disk
+            area = np.pi * (rmax**2 - rmin**2)
+            cell_size = config.get_cell_size()
+            cells_per_layer = int(area / (cell_size['x'] * cell_size['y']))
+        
+        # Store info for each repeat
+        for r in range(repeat):
+            layer_id = layer_count + r
             
-            # Process each repeat
-            for r in range(repeat):
-                layer_id = handle_layer_id(layer_elem, r)
-                if layer_id is not None:
-                    total_cells = cells_per_layer * n_sensitive
-                    
-                    layer_info = {
-                        'rmin': rmin,
-                        'rmax': rmax,
-                        'cells_per_layer': cells_per_layer,
-                        'sensitive_slices': n_sensitive,
-                        'total_cells': total_cells,
-                        'repeat_group': layer_count,
-                        'repeat_number': r
-                    }
-                    
-                    if prefix.endswith('Barrel'):
-                        layer_info['z_length'] = z_length
-                    else:
-                        layer_info['zmin'] = zmin
-                        layer_info['zmax'] = zmax
-                    
-                    geometry_info['layers'][layer_id] = layer_info
-                    geometry_info['total_cells'] += total_cells
-                    
-                    layer_count += 1
+            # Get number of sensitive slices
+            n_sensitive = len(layer_info['sensitive_slices'])
+            total_cells = cells_per_layer * n_sensitive
+            
+            # Store layer info
+            geometry_info['layers'][layer_id] = {
+                'repeat_group': layer_count,
+                'repeat_number': r,
+                'sensitive_slices': layer_info['sensitive_slices'],
+                'cells_per_layer': cells_per_layer,
+                'total_cells': total_cells,
+                **{k:v for k,v in layer_info.items() if k not in ['repeat', 'sensitive_slices']}
+            }
+            
+            # Add to total
+            geometry_info['total_cells'] += total_cells
+        
+        layer_count += repeat
+
+def parse_calorimeter_layer(layer_elem, constants):
+    """
+    Parse a calorimeter/muon detector layer, handling repeats and slices.
+    
+    Parameters:
+    -----------
+    layer_elem : xml.etree.ElementTree.Element
+        Layer XML element 
+    constants : dict
+        Constants dictionary
+        
+    Returns:
+    --------
+    dict with layer information
+    """
+    layer_info = {}
+    
+    # Get repeat count
+    repeat = parse_repeat_value(layer_elem, constants)
+    layer_info['repeat'] = repeat
+    
+    # Count sensitive slices
+    sensitive_slices = []
+    for i, slice_elem in enumerate(layer_elem.findall('slice')):
+        if slice_elem.get('sensitive', '').lower() == 'yes':
+            sensitive_slices.append(i)
+    layer_info['sensitive_slices'] = sensitive_slices
+    
+    # Get dimensions if available
+    for dim in ['rmin', 'rmax', 'zmin', 'zmax']:
+        value = parse_value(layer_elem.get(dim), constants)
+        if value is not None:
+            layer_info[dim] = value
+    
+    # Get segmentation info
+    seg_elem = layer_elem.find('.//segmentation')
+    if seg_elem is not None:
+        grid_x = parse_value(seg_elem.get('grid_size_x'), constants)
+        grid_y = parse_value(seg_elem.get('grid_size_y'), constants)
+        if grid_x is not None and grid_y is not None:
+            layer_info['cell_size'] = {'x': grid_x, 'y': grid_y}
+    
+    return layer_info
+
+def parse_forward_calo_layer(layer_elem, constants):
+    """
+    Parse a forward calorimeter layer with slices.
+    
+    Parameters:
+    -----------
+    layer_elem : xml.etree.ElementTree.Element
+        Layer XML element
+    constants : dict
+        Constants dictionary
+        
+    Returns:
+    --------
+    dict with layer information
+    """
+    layer_info = {}
+    
+    # Get repeat count
+    repeat = parse_repeat_value(layer_elem, constants)
+    layer_info['repeat'] = repeat
+    
+    # Count sensitive slices
+    sensitive_slices = []
+    total_thickness = 0
+    
+    for i, slice_elem in enumerate(layer_elem.findall('slice')):
+        thickness = parse_value(slice_elem.get('thickness'), constants)
+        if thickness is not None:
+            total_thickness += thickness
+            
+        if slice_elem.get('sensitive', '').lower() == 'yes':
+            sensitive_slices.append({
+                'index': i,
+                'thickness': thickness,
+                'z_offset': total_thickness - thickness/2  # Center of slice
+            })
+    
+    layer_info.update({
+        'sensitive_slices': sensitive_slices,
+        'total_thickness': total_thickness
+    })
+    
+    return layer_info
+
+def parse_forward_calo_geometry(detector, config, geometry_info, constants):
+    """
+    Parse forward calorimeter geometry (BeamCal, LumiCal).
+    
+    Parameters as before.
+    """
+    # Get detector dimensions
+    dims = detector.find('.//dimensions')
+    if dims is not None:
+        geometry_info.update({
+            'inner_r': parse_value(dims.get('inner_r'), constants),
+            'outer_r': parse_value(dims.get('outer_r'), constants),
+            'inner_z': parse_value(dims.get('inner_z'), constants)
+        })
+    
+    # Get segmentation info
+    readout = detector.find('.//readout')
+    if readout is not None:
+        seg = readout.find('.//segmentation')
+        if seg is not None:
+            geometry_info['grid_size_x'] = parse_value(seg.get('grid_size_x'), constants)
+            geometry_info['grid_size_y'] = parse_value(seg.get('grid_size_y'), constants)
+    
+    # Process layers
+    layer_count = 0
+    z_pos = geometry_info.get('inner_z', 0)
+    
+    for layer_elem in detector.findall('.//layer'):
+        # Get layer info
+        layer_info = parse_forward_calo_layer(layer_elem, constants)
+        if not layer_info:
+            continue
+            
+        # Handle repeats
+        repeat = layer_info['repeat']
+        
+        # Calculate cells per layer
+        r_range = geometry_info['outer_r'] - geometry_info['inner_r']
+        cell_size = config.get_cell_size()
+        grid_size = int(r_range / cell_size['x'])
+        cells_per_layer = grid_size * grid_size  # Square grid
+        
+        # Store info for each repeat
+        for r in range(repeat):
+            layer_id = layer_count + r
+            
+            # Calculate total cells including sensitive slices
+            n_sensitive = len(layer_info['sensitive_slices'])
+            total_cells = cells_per_layer * n_sensitive
+            
+            # Store layer info
+            geometry_info['layers'][layer_id] = {
+                'zstart': z_pos,
+                'repeat_group': layer_count,
+                'repeat_number': r,
+                'sensitive_slices': layer_info['sensitive_slices'],
+                'cells_per_layer': cells_per_layer,
+                'total_cells': total_cells,
+                'inner_r': geometry_info['inner_r'],
+                'outer_r': geometry_info['outer_r'],
+                'grid_size': grid_size
+            }
+            
+            # Add to total
+            geometry_info['total_cells'] += total_cells
+            
+            # Update z position
+            z_pos += layer_info['total_thickness']
+            
+        layer_count += repeat
 
 
 def extract_barrel_layer_info(layer_elem, constants=None):

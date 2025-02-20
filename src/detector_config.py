@@ -44,76 +44,95 @@ class DetectorConfig:
 
 
 def get_detector_configs():
+    """Returns a dictionary of detector configurations"""
     
     DETECTOR_CONFIGS = {
-    'SiVertexBarrel': DetectorConfig(
-        name='SiVertexBarrel',
-        detector_type='barrel',
-        detector_class='vertex'
-    ),
-    'SiVertexEndcap': DetectorConfig(
-        name='SiVertexEndcap',
-        detector_type='endcap',
-        detector_class='vertex'
-    ),
-    'SiTrackerBarrel': DetectorConfig(
-        name='SiTrackerBarrel',
-        detector_type='barrel',
-        detector_class='tracker'
-    ),
-    'SiTrackerEndcap': DetectorConfig(
-        name='SiTrackerEndcap',
-        detector_type='endcap',
-        detector_class='tracker'
-    ),
-    'SiTrackerForward': DetectorConfig(
-        name='SiTrackerForward',
-        detector_type='endcap',
-        detector_class='tracker'
-    ),
-    'ECalBarrel': DetectorConfig(
-        name='ECalBarrel',
-        detector_type='barrel',
-        detector_class='ecal'
-    ),
-    'ECalEndcap': DetectorConfig(
-        name='ECalEndcap',
-        detector_type='endcap',
-        detector_class='ecal'
-    ),
-    'HCalBarrel': DetectorConfig(
-        name='HCalBarrel',
-        detector_type='barrel',
-        detector_class='hcal'
-    ),
-    'HCalEndcap': DetectorConfig(
-        name='HCalEndcap',
-        detector_type='endcap',
-        detector_class='hcal'
-    ),
-    'BeamCal': DetectorConfig(
-        name='BeamCal',
-        detector_type='endcap',
-        detector_class='beamcal'
-    ),
-    'LumiCal': DetectorConfig(
-        name='LumiCal',
-        detector_type='endcap',
-        detector_class='lumical'
-    ),
-    'MuonBarrel': DetectorConfig(
-        name='MuonBarrel',
-        detector_type='barrel',
-        detector_class='muon'
-    ),
-    'MuonEndcap': DetectorConfig(
-        name='MuonEndcap',
-        detector_type='endcap',
-        detector_class='muon'
-    )
+        # Existing vertex detector configs
+        'SiVertexBarrel': DetectorConfig(
+            name='SiVertexBarrel',
+            detector_type='barrel',
+            detector_class='vertex',
+            cell_sizes={'default': {'x': 0.02, 'y': 0.02}}  # 20x20 micron
+        ),
+        'SiVertexEndcap': DetectorConfig(
+            name='SiVertexEndcap',
+            detector_type='endcap',
+            detector_class='vertex',
+            cell_sizes={'default': {'x': 0.02, 'y': 0.02}}
+        ),
+        
+        # Add tracker detector configs
+        'SiTrackerBarrel': DetectorConfig(
+            name='SiTrackerBarrel',
+            detector_type='barrel',
+            detector_class='tracker',
+            cell_sizes={'default': {'x': 0.02, 'y': 0.02}}  # 20x20 micron
+        ),
+        'SiTrackerEndcap': DetectorConfig(
+            name='SiTrackerEndcap', 
+            detector_type='endcap',
+            detector_class='tracker',
+            cell_sizes={'default': {'x': 0.02, 'y': 0.02}}
+        ),
+        'SiTrackerForward': DetectorConfig(
+            name='SiTrackerForward',
+            detector_type='forward', 
+            detector_class='tracker',
+            cell_sizes={'default': {'x': 0.02, 'y': 0.02}}
+        ),
+        
+        # Configs for other detectors (calorimeters, etc)
+        'ECalBarrel': DetectorConfig(
+            name='ECalBarrel',
+            detector_type='barrel',
+            detector_class='ecal',
+            cell_sizes={'default': {'x': 3.0, 'y': 3.0}}  # 3x3 mm
+        ),
+        'ECalEndcap': DetectorConfig(
+            name='ECalEndcap',
+            detector_type='endcap',
+            detector_class='ecal',
+            cell_sizes={'default': {'x': 3.0, 'y': 3.0}}
+        ),
+        'HCalBarrel': DetectorConfig(
+            name='HCalBarrel',
+            detector_type='barrel',
+            detector_class='hcal',
+            cell_sizes={'default': {'x': 30.0, 'y': 30.0}}  # 30x30 mm
+        ),
+        'HCalEndcap': DetectorConfig(
+            name='HCalEndcap',
+            detector_type='endcap',
+            detector_class='hcal',
+            cell_sizes={'default': {'x': 30.0, 'y': 30.0}}
+        ),
+        'BeamCal': DetectorConfig(
+            name='BeamCal',
+            detector_type='endcap',
+            detector_class='beamcal',
+            cell_sizes={'default': {'x': 3.5, 'y': 3.5}}  # 3.5x3.5 mm
+        ),
+        'LumiCal': DetectorConfig(
+            name='LumiCal',
+            detector_type='endcap',
+            detector_class='lumical',
+            cell_sizes={'default': {'x': 3.5, 'y': 3.5}}
+        ),
+        'MuonBarrel': DetectorConfig(
+            name='MuonBarrel',
+            detector_type='barrel',
+            detector_class='muon',
+            cell_sizes={'default': {'x': 30.0, 'y': 30.0}}  # 30x30 mm
+        ),
+        'MuonEndcap': DetectorConfig(
+            name='MuonEndcap',
+            detector_type='endcap',
+            detector_class='muon',
+            cell_sizes={'default': {'x': 30.0, 'y': 30.0}}
+        )
     }
 
-    return DETECTOR_CONFIGS    
+    return DETECTOR_CONFIGS
 
 
 def get_xmls():

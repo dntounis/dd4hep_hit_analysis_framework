@@ -221,111 +221,443 @@ def get_local_coordinates_barrel_polar(hit_pos, layer_info, module, cell_size, e
 
 
 
+# def get_pixel_id(hit_pos, decoded, config, geometry_info, effective_cell_size=None, verbose=False):
+#     """
+#     Compute a pixel (cell) identifier for a hit.
+
+#     For tracker/vertex detectors in a barrel, the function uses a polar transformation.
+#     For calorimeters and forward detectors, it uses a simple Cartesian grid.
+
+#     Parameters:
+#       hit_pos: tuple (x, y, z) in mm (global coordinates)
+#       decoded: dictionary from your DD4hep decoder (e.g. contains 'layer' and, for trackers, 'module')
+#       config: DetectorConfig instance (its detector_class and detector_type are used)
+#       geometry_info: dict from get_geometry_info with per-layer geometry information
+#       effective_cell_size: optional dict overriding default cell size (keys 'x' and 'y')
+#       verbose: if True, print debug info for a few hits
+
+#     Returns:
+#       A tuple uniquely identifying the pixel. For a barrel tracker, it returns
+#       (layer, module, pixel_t, pixel_z), where:
+#          - pixel_t is the index in the tangential direction (from the polar transform)
+#          - pixel_z is the index along z.
+#       For calorimeters, it returns a Cartesian (pixel_x, pixel_y).
+#     """
+#     # Get cell size (default: use config.get_cell_size())
+#     cell_size = effective_cell_size if effective_cell_size is not None else config.get_cell_size(layer=decoded.get('layer'))
+#     det_class = config.detector_class.lower()
+#     det_type  = config.detector_type.lower()  # expected "barrel" or "endcap"
+#     layer = decoded.get('layer')
+    
+#     # --- Tracker/Vertex devices ---
+#     if det_class in ["vertex", "tracker"]:
+#         if geometry_info and (layer in geometry_info['layers']):
+#             layer_geom = geometry_info['layers'][layer]
+#             if det_type == "barrel":
+#                 # Get global hit coordinates
+#                 hit_x, hit_y, hit_z = hit_pos
+#                 r_hit = np.sqrt(hit_x**2 + hit_y**2)
+#                 phi_hit = np.arctan2(hit_y, hit_x)
+#                 nphi = layer_geom.get('nphi')
+#                 phi0 = layer_geom.get('phi0', 0.0)
+#                 phi_tilt = layer_geom.get('phi_tilt', 0.0)
+#                 # Compute nominal radius: either directly from "rc" or from inner/outer radii.
+#                 rc = layer_geom.get('rc')
+#                 if rc is None:
+#                     inner_r = layer_geom.get('inner_r')
+#                     outer_r = layer_geom.get('outer_r')
+#                     if inner_r is not None and outer_r is not None:
+#                         rc = (inner_r + outer_r) / 2
+#                     else:
+#                         rc = 0.0
+#                 module = decoded.get('module', 0)
+#                 delta_phi = 2 * np.pi / nphi
+#                 # Compute the module center in φ
+#                 module_center_phi = phi0 + (module + 0.5)*delta_phi + phi_tilt
+#                 # Wrap the difference into [–π, π]
+#                 dphi = (phi_hit - module_center_phi + np.pi) % (2*np.pi) - np.pi
+#                 # Compute local tangential coordinate
+#                 local_t = rc * dphi
+#                 # For the vertex barrel, the sensor’s “width” (tangential) and “length” (z)
+#                 sensor_width = layer_geom.get('width', 1.0)   # e.g. 9.8 mm
+#                 sensor_length = layer_geom.get('length', 1.0)   # e.g. 126 mm
+#                 # Get z0 offset (default 0)
+#                 z0 = layer_geom.get('z0', 0.0)
+#                 local_z = hit_z - z0
+#                 # Map local coordinates (which we assume span from –width/2 to +width/2, etc.)
+#                 pixel_t = int((local_t + sensor_width/2) / cell_size['x'])
+#                 pixel_z = int((local_z + sensor_length/2) / cell_size['y'])
+#                 # Optionally enforce bounds:
+#                 max_pixels_t = int(sensor_width / cell_size['x'])
+#                 max_pixels_z = int(sensor_length / cell_size['y'])
+#                 pixel_t = max(0, min(pixel_t, max_pixels_t - 1))
+#                 pixel_z = max(0, min(pixel_z, max_pixels_z - 1))
+#                 if verbose:
+#                     if not hasattr(get_pixel_id, "verbose_count"):
+#                         get_pixel_id.verbose_count = 0
+#                     if get_pixel_id.verbose_count < 3:
+#                         print("=== Tracker Barrel Hit ===")
+#                         print("Global hit pos:", hit_pos)
+#                         print("r_hit =", r_hit, "phi_hit =", phi_hit)
+#                         print("Module index:", module, "Module center φ =", module_center_phi)
+#                         print("dphi =", dphi, "=> local tangential =", local_t)
+#                         print("Local z =", local_z)
+#                         print("Pixel indices: (t, z) =", (pixel_t, pixel_z))
+#                         get_pixel_id.verbose_count += 1
+#                 return (layer, module, pixel_t, pixel_z)
+#             # For an endcap tracker we might simply use a Cartesian projection
+#             elif det_type == "endcap":
+#                 hit_x, hit_y, hit_z = hit_pos
+#                 pixel_x = int(hit_x / cell_size['x'])
+#                 pixel_z = int(hit_z / cell_size['y'])
+#                 return (layer, pixel_x, pixel_z)
+#         # Fallback: if no geometry info, simply return (layer, module)
+#         module = decoded.get('module', 0)
+#         return (layer, module)
+    
+#     # --- Calorimeters and forward detectors ---
+#     elif det_class in ["ecal", "hcal", "muon", "beamcal", "lumical"]:
+#         hit_x, hit_y, hit_z = hit_pos
+#         pixel_x = int(hit_x / cell_size['x'])
+#         pixel_y = int(hit_y / cell_size['y'])
+#         return (pixel_x, pixel_y)
+    
+#     # --- Fallback for unknown types ---
+#     else:
+#         module = decoded.get('module', 0)
+#         return (layer, module)
+
+
+
 def get_pixel_id(hit_pos, decoded, config, geometry_info, effective_cell_size=None, verbose=False):
     """
-    Compute a pixel (cell) identifier for a hit.
-
-    For tracker/vertex detectors in a barrel, the function uses a polar transformation.
-    For calorimeters and forward detectors, it uses a simple Cartesian grid.
-
-    Parameters:
-      hit_pos: tuple (x, y, z) in mm (global coordinates)
-      decoded: dictionary from your DD4hep decoder (e.g. contains 'layer' and, for trackers, 'module')
-      config: DetectorConfig instance (its detector_class and detector_type are used)
-      geometry_info: dict from get_geometry_info with per-layer geometry information
-      effective_cell_size: optional dict overriding default cell size (keys 'x' and 'y')
-      verbose: if True, print debug info for a few hits
-
-    Returns:
-      A tuple uniquely identifying the pixel. For a barrel tracker, it returns
-      (layer, module, pixel_t, pixel_z), where:
-         - pixel_t is the index in the tangential direction (from the polar transform)
-         - pixel_z is the index along z.
-      For calorimeters, it returns a Cartesian (pixel_x, pixel_y).
+    Enhanced pixel ID calculation with tracker support.
+    
+    Parameters as before.
     """
-    # Get cell size (default: use config.get_cell_size())
+    # Get cell size (use effective if provided)
     cell_size = effective_cell_size if effective_cell_size is not None else config.get_cell_size(layer=decoded.get('layer'))
     det_class = config.detector_class.lower()
-    det_type  = config.detector_type.lower()  # expected "barrel" or "endcap"
+    det_type = config.detector_type.lower()
     layer = decoded.get('layer')
     
-    # --- Tracker/Vertex devices ---
+    # Get layer info if available
+    layer_info = geometry_info['layers'].get(layer) if geometry_info else None
+    
     if det_class in ["vertex", "tracker"]:
-        if geometry_info and (layer in geometry_info['layers']):
-            layer_geom = geometry_info['layers'][layer]
-            if det_type == "barrel":
-                # Get global hit coordinates
-                hit_x, hit_y, hit_z = hit_pos
-                r_hit = np.sqrt(hit_x**2 + hit_y**2)
-                phi_hit = np.arctan2(hit_y, hit_x)
-                nphi = layer_geom.get('nphi')
-                phi0 = layer_geom.get('phi0', 0.0)
-                phi_tilt = layer_geom.get('phi_tilt', 0.0)
-                # Compute nominal radius: either directly from "rc" or from inner/outer radii.
-                rc = layer_geom.get('rc')
-                if rc is None:
-                    inner_r = layer_geom.get('inner_r')
-                    outer_r = layer_geom.get('outer_r')
-                    if inner_r is not None and outer_r is not None:
-                        rc = (inner_r + outer_r) / 2
-                    else:
-                        rc = 0.0
-                module = decoded.get('module', 0)
-                delta_phi = 2 * np.pi / nphi
-                # Compute the module center in φ
-                module_center_phi = phi0 + (module + 0.5)*delta_phi + phi_tilt
-                # Wrap the difference into [–π, π]
-                dphi = (phi_hit - module_center_phi + np.pi) % (2*np.pi) - np.pi
-                # Compute local tangential coordinate
-                local_t = rc * dphi
-                # For the vertex barrel, the sensor’s “width” (tangential) and “length” (z)
-                sensor_width = layer_geom.get('width', 1.0)   # e.g. 9.8 mm
-                sensor_length = layer_geom.get('length', 1.0)   # e.g. 126 mm
-                # Get z0 offset (default 0)
-                z0 = layer_geom.get('z0', 0.0)
-                local_z = hit_z - z0
-                # Map local coordinates (which we assume span from –width/2 to +width/2, etc.)
-                pixel_t = int((local_t + sensor_width/2) / cell_size['x'])
-                pixel_z = int((local_z + sensor_length/2) / cell_size['y'])
-                # Optionally enforce bounds:
-                max_pixels_t = int(sensor_width / cell_size['x'])
-                max_pixels_z = int(sensor_length / cell_size['y'])
-                pixel_t = max(0, min(pixel_t, max_pixels_t - 1))
-                pixel_z = max(0, min(pixel_z, max_pixels_z - 1))
-                if verbose:
-                    if not hasattr(get_pixel_id, "verbose_count"):
-                        get_pixel_id.verbose_count = 0
-                    if get_pixel_id.verbose_count < 3:
-                        print("=== Tracker Barrel Hit ===")
-                        print("Global hit pos:", hit_pos)
-                        print("r_hit =", r_hit, "phi_hit =", phi_hit)
-                        print("Module index:", module, "Module center φ =", module_center_phi)
-                        print("dphi =", dphi, "=> local tangential =", local_t)
-                        print("Local z =", local_z)
-                        print("Pixel indices: (t, z) =", (pixel_t, pixel_z))
-                        get_pixel_id.verbose_count += 1
-                return (layer, module, pixel_t, pixel_z)
-            # For an endcap tracker we might simply use a Cartesian projection
-            elif det_type == "endcap":
-                hit_x, hit_y, hit_z = hit_pos
-                pixel_x = int(hit_x / cell_size['x'])
-                pixel_z = int(hit_z / cell_size['y'])
-                return (layer, pixel_x, pixel_z)
-        # Fallback: if no geometry info, simply return (layer, module)
-        module = decoded.get('module', 0)
-        return (layer, module)
+        # Use enhanced tracker handler for all silicon detectors
+        if layer_info:
+            return get_tracker_pixel_id(hit_pos, decoded, config, layer_info, cell_size)
+        return (layer, decoded.get('module', 0))
     
-    # --- Calorimeters and forward detectors ---
-    elif det_class in ["ecal", "hcal", "muon", "beamcal", "lumical"]:
-        hit_x, hit_y, hit_z = hit_pos
-        pixel_x = int(hit_x / cell_size['x'])
-        pixel_y = int(hit_y / cell_size['y'])
-        return (pixel_x, pixel_y)
+    elif det_class in ["ecal", "hcal", "muon"]:
+        # Use specialized handler for calorimeter/muon detectors
+        if layer_info:
+            return get_calo_muon_pixel_id(hit_pos, decoded, config, layer_info, cell_size)
+        return (layer, decoded.get('module', 0), decoded.get('stave', 0), decoded.get('slice', 0), 0, 0)
     
-    # --- Fallback for unknown types ---
-    else:
-        module = decoded.get('module', 0)
-        return (layer, module)
+    elif det_class in ["beamcal", "lumical"]:
+        # Use specialized handler for forward calorimeters
+        if layer_info:
+            return get_forward_calo_pixel_id(hit_pos, decoded, config, layer_info, cell_size)
+        return (layer, decoded.get('slice', 0), decoded.get('x', 0), decoded.get('y', 0))
+    
+    # Fallback
+    return (layer, decoded.get('module', 0))
+
+
+def get_tracker_pixel_id(hit_pos, decoded, config, layer_info, cell_size):
+    """
+    Get pixel ID for tracker detectors (barrel, endcap, forward)
+    
+    Parameters:
+    -----------
+    hit_pos : tuple (x, y, z)
+        Hit position in global coordinates
+    decoded : dict 
+        Decoded cellID information
+    config : DetectorConfig
+        Detector configuration
+    layer_info : dict
+        Layer geometry information
+    cell_size : dict
+        Cell sizes in x,y directions
+        
+    Returns:
+    --------
+    tuple: (layer, module, pixel_x, pixel_y)
+    """
+    # Extract basic info
+    hit_x, hit_y, hit_z = hit_pos
+    layer = decoded['layer']
+    module = decoded.get('module', 0)
+    
+    # Handle different detector types
+    if config.detector_type == 'barrel':
+        # Calculate r, phi coordinates
+        r_hit = np.sqrt(hit_x**2 + hit_y**2)
+        phi_hit = np.arctan2(hit_y, hit_x)
+        
+        # Get module phi position
+        nphi = layer_info.get('nphi', 1)
+        phi0 = layer_info.get('phi0', 0.0)
+        phi_tilt = layer_info.get('phi_tilt', 0.0)
+        
+        # Calculate module center phi
+        module_phi = phi0 + (2 * np.pi * module / nphi) + phi_tilt
+        
+        # Convert to local coordinates
+        dphi = (phi_hit - module_phi + np.pi) % (2*np.pi) - np.pi
+        local_t = layer_info['rc'] * dphi  # Tangential coordinate
+        local_z = hit_z - layer_info.get('z0', 0.0)
+        
+        # Get module dimensions
+        module_width = layer_info.get('width', layer_info.get('module_width'))
+        module_length = layer_info.get('length', layer_info.get('module_length'))
+        
+        # Calculate pixel indices
+        pixel_t = int((local_t + module_width/2) / cell_size['x'])
+        pixel_z = int((local_z + module_length/2) / cell_size['y'])
+        
+        # Enforce bounds
+        max_pixels_t = int(module_width / cell_size['x'])
+        max_pixels_z = int(module_length / cell_size['y'])
+        pixel_t = max(0, min(pixel_t, max_pixels_t - 1))
+        pixel_z = max(0, min(pixel_z, max_pixels_z - 1))
+        
+        return (layer, module, pixel_t, pixel_z)
+        
+    elif config.detector_type == 'endcap':
+        # Find matching ring
+        matching_ring = None
+        for ring in layer_info['rings']:
+            if (ring['r_inner'] <= np.sqrt(hit_x**2 + hit_y**2) <= ring['r_outer'] and
+                ring['z_min'] <= abs(hit_z) <= ring['z_max']):
+                matching_ring = ring
+                break
+                
+        if matching_ring is None:
+            return (layer, module)
+            
+        # Get module position in ring
+        phi = np.arctan2(hit_y, hit_x)
+        nmodules = matching_ring['nmodules']
+        phi0 = matching_ring.get('phi0', 0.0)
+        
+        # Calculate local coordinates
+        module_phi = phi0 + (2 * np.pi * module / nmodules)
+        
+        # Transform to module local coordinates
+        dx = hit_x - matching_ring['r'] * np.cos(module_phi)
+        dy = hit_y - matching_ring['r'] * np.sin(module_phi)
+        
+        cos_phi = np.cos(-module_phi)
+        sin_phi = np.sin(-module_phi)
+        
+        local_x = dx * cos_phi - dy * sin_phi
+        local_y = dx * sin_phi + dy * cos_phi
+        
+        # Get pixel indices using ring module dimensions
+        if matching_ring['type'] == 'trd':
+            # For trapezoid, use average width
+            module_width = (matching_ring['x1'] + matching_ring['x2']) / 2
+            module_length = matching_ring['z']
+        else:
+            module_width = matching_ring['width']
+            module_length = matching_ring['length']
+            
+        pixel_x = int((local_x + module_width/2) / cell_size['x'])
+        pixel_y = int((local_y + module_length/2) / cell_size['y'])
+        
+        max_pixels_x = int(module_width / cell_size['x'])
+        max_pixels_y = int(module_length / cell_size['y'])
+        pixel_x = max(0, min(pixel_x, max_pixels_x - 1))
+        pixel_y = max(0, min(pixel_y, max_pixels_y - 1))
+        
+        return (layer, module, pixel_x, pixel_y)
+        
+    elif config.detector_type == 'forward':
+        # Forward tracker uses simpler cartesian segmentation
+        module_width = layer_info.get('width', 100.0)  # Default if not specified
+        module_length = layer_info.get('length', 100.0)
+        
+        # Local coordinates relative to module center
+        local_x = hit_x
+        local_y = hit_y
+        
+        pixel_x = int((local_x + module_width/2) / cell_size['x'])
+        pixel_y = int((local_y + module_length/2) / cell_size['y'])
+        
+        max_pixels_x = int(module_width / cell_size['x'])
+        max_pixels_y = int(module_length / cell_size['y'])
+        pixel_x = max(0, min(pixel_x, max_pixels_x - 1))
+        pixel_y = max(0, min(pixel_y, max_pixels_y - 1))
+        
+        return (layer, module, pixel_x, pixel_y)
+        
+    return (layer, module)  # Fallback
+        
+    
+def get_calo_muon_pixel_id(hit_pos, decoded, config, layer_info, cell_size):
+    """
+    Get pixel/cell ID for calorimeter and muon detectors.
+    
+    Parameters:
+    -----------
+    hit_pos : tuple (x, y, z)
+        Hit position in global coordinates
+    decoded : dict
+        Decoded cellID information
+    config : DetectorConfig
+        Detector configuration
+    layer_info : dict
+        Layer geometry information
+    cell_size : dict
+        Cell sizes in x,y directions
+        
+    Returns:
+    --------
+    tuple: (layer, module, stave, slice, pixel_x, pixel_y)
+    """
+    hit_x, hit_y, hit_z = hit_pos
+    layer = decoded['layer']
+    
+    # Get additional info from decoded cellID
+    module = decoded.get('module', 0)
+    stave = decoded.get('stave', 0)
+    slice_id = decoded.get('slice', 0)
+    
+    if config.detector_type == 'barrel':
+        # For barrel: convert to r-phi coordinates first
+        r = np.sqrt(hit_x**2 + hit_y**2)
+        phi = np.arctan2(hit_y, hit_x)
+        
+        # Get geometry info
+        r_min = layer_info.get('inner_r', 0)
+        r_max = layer_info.get('outer_r', 0)
+        phi_0 = layer_info.get('phi0', 0)
+        
+        # Handle stave/module position
+        n_staves = layer_info.get('nstaves', 1)
+        stave_phi = phi_0 + (2 * np.pi * stave / n_staves)
+        
+        # Convert to local coordinates
+        dphi = (phi - stave_phi + np.pi) % (2*np.pi) - np.pi
+        local_x = r * dphi  # Tangential coordinate
+        local_y = hit_z
+        
+    else:  # endcap
+        # For endcap: use x,y directly but consider z position
+        local_x = hit_x
+        local_y = hit_y
+        
+        # Get z bounds
+        z_min = layer_info.get('zmin', 0)
+        z_max = layer_info.get('zmax', 0)
+        
+        # Skip if outside z range
+        if not (z_min <= abs(hit_z) <= z_max):
+            return (layer, module, stave, slice_id, 0, 0)
+    
+    # Calculate pixel indices using cell size
+    pixel_x = int(local_x / cell_size['x'])
+    pixel_y = int(local_y / cell_size['y'])
+    
+    # Get module dimensions
+    module_width = layer_info.get('module_width', 1000.0)  # Default 1m
+    module_length = layer_info.get('module_length', 1000.0)
+    
+    # Enforce bounds
+    max_pixels_x = int(module_width / cell_size['x'])
+    max_pixels_y = int(module_length / cell_size['y'])
+    pixel_x = max(0, min(pixel_x, max_pixels_x - 1))
+    pixel_y = max(0, min(pixel_y, max_pixels_y - 1))
+    
+    return (layer, module, stave, slice_id, pixel_x, pixel_y)
+
+def calculate_calorimeter_occupancy(cells_hit, total_cells, threshold=1):
+    """
+    Calculate occupancy for calorimeter/muon detector layers.
+    
+    Parameters:
+    -----------
+    cells_hit : dict
+        Dictionary of (layer,module,stave,slice,x,y) -> hit count
+    total_cells : int
+        Total number of cells from geometry
+    threshold : int
+        Hit count threshold
+        
+    Returns:
+    --------
+    float : occupancy fraction
+    """
+    if total_cells == 0:
+        return 0.0
+    
+    # Count cells above threshold
+    cells_above = sum(1 for hits in cells_hit.values() if hits >= threshold)
+    
+    return cells_above / total_cells
+
+
+def get_forward_calo_pixel_id(hit_pos, decoded, config, layer_info, cell_size):
+    """
+    Get pixel/cell ID for forward calorimeters (BeamCal, LumiCal).
+    
+    Parameters:
+    -----------
+    hit_pos : tuple (x, y, z)
+        Hit position in global coordinates
+    decoded : dict
+        Decoded cellID information
+    config : DetectorConfig
+        Detector configuration
+    layer_info : dict
+        Layer geometry information
+    cell_size : dict
+        Cell sizes in x,y directions
+        
+    Returns:
+    --------
+    tuple: (layer, slice, pixel_x, pixel_y)
+    """
+    hit_x, hit_y, hit_z = hit_pos
+    layer = decoded['layer']
+    slice_id = decoded.get('slice', 0)
+    
+    # Get layer geometry
+    z_start = layer_info.get('zstart', abs(hit_z))
+    r_min = layer_info.get('inner_r', 0)
+    r_max = layer_info.get('outer_r', 0)
+    
+    # Calculate r for position check
+    r = np.sqrt(hit_x**2 + hit_y**2)
+    
+    # Skip if outside detector bounds
+    if not (r_min <= r <= r_max):
+        return (layer, slice_id, 0, 0)
+        
+    # Convert to local coordinates (relative to layer z position)
+    local_x = hit_x  # x position in grid
+    local_y = hit_y  # y position in grid
+    
+    # Calculate pixel indices
+    pixel_x = int(local_x / cell_size['x'])
+    pixel_y = int(local_y / cell_size['y'])
+    
+    # Get grid dimensions from layer info
+    grid_size_x = layer_info.get('grid_size_x', int((r_max - r_min) / cell_size['x']))
+    grid_size_y = layer_info.get('grid_size_y', grid_size_x)  # Usually symmetric
+    
+    # Enforce bounds
+    pixel_x = max(-grid_size_x // 2, min(pixel_x, grid_size_x // 2))
+    pixel_y = max(-grid_size_y // 2, min(pixel_y, grid_size_y // 2))
+    
+    return (layer, slice_id, pixel_x, pixel_y)
+
+
+
 
 
 def get_local_pixel_coordinates(hit_pos, layer_info, module, cell_size):
