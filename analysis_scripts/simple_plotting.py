@@ -82,11 +82,11 @@ print(len(seeds))
 
 
 # Directory path and filename pattern
-base_path = "/fs/ddn/sdf/group/atlas/d/dntounis/C^3/bkg_studies_2023/GuineaPig_July_2024/output_new/C3_250_PS1/ddsim/"
-filename_pattern = "ddsim_C3_250_PS1_seed_{}.edm4hep.root"
+# base_path = "/fs/ddn/sdf/group/atlas/d/dntounis/C^3/bkg_studies_2023/GuineaPig_July_2024/output_new/C3_250_PS1/ddsim/"
+# filename_pattern = "ddsim_C3_50_PS1_seed_{}.edm4hep.root"
 
-#base_path = "/fs/ddn/sdf/group/atlas/d/dntounis/C^3/bkg_studies_2023/GuineaPig_July_2024/output_new/C3_550_PS1/ddsim/"
-#filename_pattern = "ddsim_C3_550_PS1_seed_{}_MERGED.edm4hep.root"
+base_path = "/fs/ddn/sdf/group/atlas/d/dntounis/C^3/bkg_studies_2023/GuineaPig_July_2024/output_new/C3_550_PS1/ddsim/"
+filename_pattern = "ddsim_C3_550_PS1_seed_{}_MERGED.edm4hep.root"
 
 
 # Open all files with different seeds and store them in a list

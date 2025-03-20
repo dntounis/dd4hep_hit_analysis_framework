@@ -10,7 +10,7 @@ setup(
         'hist',
         'awkward',
         'matplotlib',
-        'mplhep',
+        'mplhep'
     ],
     author='Dimitris Ntounis',
     author_email='dntounis@stanford.edu',

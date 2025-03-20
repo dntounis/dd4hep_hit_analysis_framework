@@ -10,6 +10,11 @@ from src.geometry_parsing.geometry_info import get_geometry_info
 from src.hit_analysis.occupancy import analyze_detector_hits
 from src.geometry_parsing.k4geo_parsers import parse_detector_constants 
 
+# import matplotlib as mpl
+# mpl.rc('text', usetex=True)
+# mpl.rcParams['text.latex.preamble']=[r"\usepackage{amsmath}"]
+
+
 def plot_hit_distribution(stats, output_file=None):
     """
     Create visualization of hit distribution
@@ -26,9 +31,9 @@ def plot_hit_distribution(stats, output_file=None):
     # Hit distribution histogram
     hits, counts = zip(*sorted(stats['hit_distribution'].items()))
     ax1.bar(hits, counts)
-    ax1.set_xlabel('Hits per cell')
-    ax1.set_ylabel('Number of cells')
-    ax1.set_title('Hit Distribution')
+    ax1.set_xlabel('Hits per cell',fontsize=18)
+    ax1.set_ylabel('Number of cells',fontsize=18)
+    ax1.set_title('Hit Distribution',fontsize=20)
     ax1.set_yscale('log')
     
     # Per-layer statistics
@@ -37,9 +42,9 @@ def plot_hit_distribution(stats, output_file=None):
     occupancies = [stats['per_layer'][layer]['pixels_hit'] for layer in layers]
 
     ax2.bar(layers, occupancies)
-    ax2.set_xlabel('Layer')
-    ax2.set_ylabel('Number of cells hit')
-    ax2.set_title('Cells Hit per Layer')
+    ax2.set_xlabel('Layer',fontsize=18)
+    ax2.set_ylabel('Number of cells hit',fontsize=18)
+    ax2.set_title('Cells Hit per Layer',fontsize=20)
     
     plt.tight_layout()
     
@@ -64,18 +69,29 @@ def plot_occupancy_analysis(stats, geometry_info, output_prefix=None, time_cut=-
     """
     # Create figure with multiple subplots
     fig = plt.figure(figsize=(15, 10))
+
+
+
     plt.style.use(hep.style.CMS)
+    # plt.rcParams.update({
+    #     'font.family': 'serif',
+    #     'font.serif': ['Times New Roman', 'DejaVu Serif', 'Palatino', 'serif'],
+    #     'mathtext.fontset': 'dejavuserif',
+    # })
+
 
     # Retrieve assumed time cut for occupancy calculation
     time_cut = stats['time_cut']
     print(f"Time cut: {time_cut}")
 
+    title_text = f'Occupancy Analysis for {geometry_info["detector_name"]}'
     if time_cut > 0:
-        fig.suptitle(f'Occupancy Analysis for {geometry_info["detector_name"]} (t<{time_cut} ns)')
-    else:
-        fig.suptitle(f'Occupancy Analysis for {geometry_info["detector_name"]}')
-    
-    
+        title_text += f' (t<{time_cut} ns)'
+
+    # Add the C^3 info and use rich text formatting for "Preliminary"
+    title_text += r'                   SiD_o2_v04@C$^{3}$-550 (266 bunches) - $\boldsymbol{\it{Preliminary}}$'
+    fig.suptitle(title_text, fontsize=24)
+
     gs = plt.GridSpec(2, 2)
     
     # 1. Occupancy vs threshold for each layer
@@ -91,15 +107,14 @@ def plot_occupancy_analysis(stats, geometry_info, output_prefix=None, time_cut=-
                       for t in thresholds]
         ax1.plot(thresholds, occupancies, 'o-', label=f'Layer {layer}')
     
-    ax1.set_xlabel('Hit Threshold')
+    ax1.set_xlabel('Hit Threshold',fontsize=18)
     #ax1.set_ylabel('Occupancy (%)')
-    ax1.set_ylabel('Occupancy')
+    ax1.set_ylabel('Occupancy',fontsize=18)
     ax1.set_yscale('log')
-    ax1.set_title('Occupancy vs Hit Threshold by Layer')
+    ax1.set_title('Occupancy vs Hit Threshold by Layer',fontsize=20)
     ax1.grid(True)
     ax1.legend()
     
-    # 2. R-Phi hit distribution
     # 2. R-Phi hit distribution
     ax2 = fig.add_subplot(gs[0, 1], projection='polar')
     # Convert awkward arrays to numpy arrays
@@ -107,28 +122,17 @@ def plot_occupancy_analysis(stats, geometry_info, output_prefix=None, time_cut=-
     r_vals = ak.to_numpy(stats['positions']['r'])
 
     # Create the edges first
-    r_edges = np.linspace(0, max(stats['positions']['r']), 21)
-    phi_edges = np.linspace(-np.pi, np.pi, 51)
+    hist, xedges, yedges = np.histogram2d(phi_vals, r_vals, bins=[51, 21])
 
-    # Create histogram with the same number of bins as your edges
-    hist, _, _ = np.histogram2d(phi_vals, r_vals, 
-                            bins=[phi_edges, r_edges])  # Use the same edges here
-
-    # Create meshgrid
-    R, PHI = np.meshgrid(r_edges[:-1], phi_edges[:-1])
-
-    # Create a colormap that uses purple for zero values
-    pcm = ax2.pcolormesh(PHI, R, hist, 
-                        shading='auto', 
-                        cmap='viridis',
-                        vmin=0,
-                        edgecolors='none')
+    pcm = ax2.pcolormesh(xedges[:-1], yedges[:-1], hist.T, 
+                         shading='auto',cmap='viridis',
+                         vmin=0,
+                         edgecolors='none')
     ax2.set_facecolor('#3F007D')
-    
-
-
-
-
+    ax2.set_ylabel('R [mm]',fontsize=18)
+    ax2.set_xlabel('Phi [rad]',fontsize=18)
+    ax2.set_title('Hit Distribution (R-Phi)',fontsize=20)
+    plt.colorbar(pcm, ax=ax2, label='Hits')
 
     # 3. R-Z hit distribution
     ax3 = fig.add_subplot(gs[1, :])
@@ -137,11 +141,10 @@ def plot_occupancy_analysis(stats, geometry_info, output_prefix=None, time_cut=-
     r_vals = ak.to_numpy(stats['positions']['r'])
     hist, xedges, yedges = np.histogram2d(z_vals, r_vals, bins=[100, 30])
     
-
     pcm = ax3.pcolormesh(xedges[:-1], yedges[:-1], hist.T, shading='auto')
-    ax3.set_xlabel('Z [mm]')
-    ax3.set_ylabel('R [mm]')
-    ax3.set_title('Hit Distribution (R-Z)')
+    ax3.set_xlabel('Z [mm]',fontsize=18)
+    ax3.set_ylabel('R [mm]',fontsize=18)
+    ax3.set_title('Hit Distribution (R-Z)',fontsize=20)
     plt.colorbar(pcm, ax=ax3, label='Hits')
     
     plt.tight_layout()
@@ -156,31 +159,47 @@ def plot_timing_analysis(stats, geometry_info, output_prefix=None):
     # Create figure with multiple subplots
     fig = plt.figure(figsize=(15, 10))
     plt.style.use(hep.style.CMS)
+    # plt.rcParams.update({
+    #     'font.family': 'serif',
+    #     'font.serif': ['Times New Roman', 'DejaVu Serif', 'Palatino', 'serif'],
+    #     'mathtext.fontset': 'dejavuserif',
+    # })
 
     # Retrieve assumed time cut for occupancy calculation
     time_cut = stats['time_cut']
     print(f"Time cut: {time_cut}")
 
-    if time_cut > 0:
-        fig.suptitle(f'Timing Analysis for {geometry_info["detector_name"]} (t<{time_cut} ns)')
-    else:
-        fig.suptitle(f'Timing Analysis for {geometry_info["detector_name"]}')
+    # Retrieve assumed time cut for occupancy calculation
+    time_cut = stats['time_cut']
+    print(f"Time cut: {time_cut}")
 
+    title_text = f'Timing Analysis for {geometry_info["detector_name"]}'
+    if time_cut > 0:
+        title_text += f' (t<{time_cut} ns)'
+
+    # Add the C^3 info and use rich text formatting for "Preliminary"
+    title_text += r'                   SiD_o2_v04@C$^{3}$-550 (266 bunches) - $\boldsymbol{\it{Preliminary}}$'
+    fig.suptitle(title_text, fontsize=24)
+
+      
     gs = plt.GridSpec(2, 2)
 
     time_vals = ak.to_numpy(stats['times'])
-    t_edges = np.linspace(0, max(stats['times']), 100)
+    #t_edges = np.linspace(0, max(stats['times']), 100) #Jim: change time range
+    t_edges = np.linspace(0, 100, 100)
 
     # 1. Timing distribution
     ax1 = fig.add_subplot(gs[0, 0])
+
     ax1.hist(time_vals, bins=100, range=(0, 100), histtype='step')
-    ax1.set_xlabel('Time [ns]')
-    ax1.set_ylabel('Hits')
-    ax1.set_title('Timing Distribution')
+    ax1.set_xlabel('Time [ns]',fontsize=18)
+    ax1.set_ylabel('Hits',fontsize=18)
+    ax1.set_title('Timing Distribution',fontsize=20)
     ax1.grid(True)
 
     # 2. Timing vs R
     ax2 = fig.add_subplot(gs[1, 0])
+
     r_vals = ak.to_numpy(stats['positions']['r'])
     r_edges = np.linspace(0, max(stats['positions']['r']), 21)
 
@@ -195,8 +214,8 @@ def plot_timing_analysis(stats, geometry_info, output_prefix=None):
                         edgecolors='none')
     ax2.set_facecolor('#3F007D')
     
-    ax2.set_ylabel('Time [ns]')
-    ax2.set_xlabel('R [mm]')
+    ax2.set_ylabel('Time [ns]',fontsize=18)
+    ax2.set_xlabel('R [mm]',fontsize=18)
     #ax2.set_title('Timing vs R')
 
     plt.colorbar(pcm, ax=ax2, label='Hits')
@@ -206,8 +225,9 @@ def plot_timing_analysis(stats, geometry_info, output_prefix=None):
 
     # 3. Timing vs Z
     ax3 = fig.add_subplot(gs[1, 1])
+
     z_vals = ak.to_numpy(stats['positions']['z'])
-    z_edges = np.linspace(min(stats['positions']['z']), max(stats['positions']['r']), 21)
+    z_edges = np.linspace(min(stats['positions']['z']), max(stats['positions']['z']), 100)
 
     hist, xedges, yedges = np.histogram2d(z_vals, time_vals, 
                             bins=[z_edges, t_edges]) 
@@ -219,8 +239,8 @@ def plot_timing_analysis(stats, geometry_info, output_prefix=None):
                         vmin=0,
                         edgecolors='none')
     ax3.set_facecolor('#3F007D')
-    ax3.set_xlabel('Z [mm]')
-    ax3.set_ylabel('Time [ns]')
+    ax3.set_xlabel('Z [mm]',fontsize=18)
+    ax3.set_ylabel('Time [ns]',fontsize=18)
     #ax3.set_title('Timing vs R')
 
     plt.colorbar(pcm, ax=ax3, label='Hits')
@@ -243,8 +263,8 @@ def plot_timing_analysis(stats, geometry_info, output_prefix=None):
                         vmin=0,
                         edgecolors='none')
     ax4.set_facecolor('#3F007D')
-    ax4.set_xlabel('Phi [rad]')
-    ax4.set_ylabel('Time [ns]')
+    ax4.set_xlabel('Phi [rad]',fontsize=18)
+    ax4.set_ylabel('Time [ns]',fontsize=18)
 
     plt.colorbar(pcm, ax=ax4, label='Hits')
 
@@ -269,20 +289,22 @@ def plot_detector_analysis(stats, geometry_info, detector_name, output_prefix=No
     
     # 1. Occupancy vs threshold for each layer
     ax1 = fig.add_subplot(gs[0, 0])
+
     thresholds = sorted(stats['threshold_stats'].keys())
     for layer in sorted(geometry_info['layers'].keys()):
         occupancies = [stats['threshold_stats'][t]['per_layer'].get(layer, {'occupancy': 0})['occupancy'] * 100 
                       for t in thresholds]
         ax1.plot(thresholds, occupancies, 'o-', label=f'Layer {layer}')
     
-    ax1.set_xlabel('Hit Threshold')
-    ax1.set_ylabel('Occupancy (%)')
-    ax1.set_title(f'{detector_name} Occupancy vs Hit Threshold by Layer')
+    ax1.set_xlabel('Hit Threshold',fontsize=18)
+    ax1.set_ylabel('Occupancy (%)',fontsize=18)
+    ax1.set_title(f'{detector_name} Occupancy vs Hit Threshold by Layer',fontsize=20)
     ax1.grid(True)
     ax1.legend()
     
     # 2. R-Phi hit distribution
     ax2 = fig.add_subplot(gs[0, 1], projection='polar')
+
     phi_vals = ak.to_numpy(stats['positions']['phi'])
     r_vals = ak.to_numpy(stats['positions']['r'])
     hist, _, _ = np.histogram2d(phi_vals, r_vals, bins=[50, 20])
@@ -291,18 +313,19 @@ def plot_detector_analysis(stats, geometry_info, detector_name, output_prefix=No
     R, PHI = np.meshgrid(r_edges[:-1], phi_edges[:-1])
     
     pcm = ax2.pcolormesh(PHI, R, hist, shading='auto')
-    ax2.set_title(f'{detector_name} Hit Distribution (R-Phi)')
+    ax2.set_title(f'{detector_name} Hit Distribution (R-Phi)',fontsize=20)
     plt.colorbar(pcm, ax=ax2, label='Hits')
     
     # 3. R-Z hit distribution
     ax3 = fig.add_subplot(gs[1, :])
+
     z_vals = ak.to_numpy(stats['positions']['z'])
     hist, xedges, yedges = np.histogram2d(z_vals, r_vals, bins=[100, 20])
     
     pcm = ax3.pcolormesh(xedges[:-1], yedges[:-1], hist.T, shading='auto')
-    ax3.set_xlabel('Z [mm]')
-    ax3.set_ylabel('R [mm]')
-    ax3.set_title(f'{detector_name} Hit Distribution (R-Z)')
+    ax3.set_xlabel('Z [mm]',fontsize=18)
+    ax3.set_ylabel('R [mm]',fontsize=18)
+    ax3.set_title(f'{detector_name} Hit Distribution (R-Z)',fontsize=20)
     plt.colorbar(pcm, ax=ax3, label='Hits')
     
     plt.tight_layout()
@@ -334,55 +357,99 @@ def print_occupancy_statistics(results, geometry_info):
 
 
 
-def analyze_detectors_and_plot(DETECTOR_CONFIGS=None,detectors_to_analyze=None,event_trees=None,main_xml=None,remove_zeros=True,time_cut=-1):
+def analyze_detectors_and_plot(DETECTOR_CONFIGS=None, detectors_to_analyze=None, event_trees=None,
+                              main_xml=None, remove_zeros=True, time_cut=-1, 
+                              calo_hit_time_def=0, energy_thresholds=None):
+    """
+    Analyze detectors and create plots
+    
+    Parameters:
+    -----------
+    DETECTOR_CONFIGS : dict
+        Dictionary of detector configurations
+    detectors_to_analyze : list
+        List of (detector_name, xml_file) tuples
+    event_trees : list
+        List of uproot event trees
+    main_xml : str
+        Path to main XML file
+    remove_zeros : bool
+        Whether to remove hits with zero positions
+    time_cut : float
+        Cut on hit time in ns (-1 for no cut)
+    calo_hit_time_def : int
+        0: use min time of contributions, 1: time when cumulative energy exceeds threshold
+    energy_thresholds : dict, optional
+        Dictionary of energy thresholds for different detector types (see analyze_detector_hits)
+    """
+    # Default thresholds
+    if energy_thresholds is None:
+        energy_thresholds = {
+            'silicon': 30e-3,               # 30 keV for silicon
+            'ecal_hits': 5e-3,              # 5 MeV for ECAL hits
+            'ecal_contributions': 0.2e-3,    # 200 keV for ECAL contributions
+            'hcal_hits': 20e-3,             # 20 MeV for HCAL hits
+            'hcal_contributions': 1e-3,      # 1 MeV for HCAL contributions
+            'muon_hits': 50e-3,             # 50 MeV for Muon hits
+            'muon_contributions': 5e-3       # 5 MeV for Muon contributions
+        }
 
-        print("\nAnalyzing detectors:")
-        for detector_name, xml_file in detectors_to_analyze:
-            print(f"\nAnalyzing {detector_name}...")
-            try:
-                detector_config = DETECTOR_CONFIGS[detector_name]
-                xmls = get_xmls()
-                main_xml = xmls['main_xml']
-                # Pass detector name to get specific debug info
-                constants = parse_detector_constants(main_xml, detector_name)
-                geometry_info = get_geometry_info(xml_file, detector_config, constants=constants)
-                
-                # Print geometry info
-                print(f"\nGeometry info for {detector_name}:")
-                print(f"Total cells: {geometry_info['total_cells']}")
-                for layer, info in sorted(geometry_info['layers'].items()):
-                    print(f"\nLayer {layer}:")
-                    for key, value in info.items():
-                        print(f"  {key}: {value}")
-                
-        
-                # Define thresholds to analyze
-                hit_thresholds = [1, 2, 3, 4, 5,6,7,8,9, 10]
-                stats = analyze_detector_hits(event_trees,detector_name=detector_name,config=detector_config, hit_thresholds=hit_thresholds, geometry_file=xml_file,constants=constants,main_xml=main_xml,remove_zeros=remove_zeros,time_cut=time_cut)
-                #plot_detector_analysis(stats, geometry_info, detector_name=detector_name, output_prefix=None)
-                
-                # Create visualizations
-                plot_occupancy_analysis(stats, geometry_info, output_prefix=detector_name)
-                
-                plot_timing_analysis(stats, geometry_info, output_prefix=detector_name)
+    print("\nAnalyzing detectors:")
+    for detector_name, xml_file in detectors_to_analyze:
+        print(f"\nAnalyzing {detector_name}...")
+        try:
+            detector_config = DETECTOR_CONFIGS[detector_name]
+            xmls = get_xmls()
+            main_xml = xmls['main_xml']
+            # Pass detector name to get specific debug info
+            constants = parse_detector_constants(main_xml, detector_name)
+            geometry_info = get_geometry_info(xml_file, detector_config, constants=constants)
+            
+            # Print geometry info
+            print(f"\nGeometry info for {detector_name}:")
+            print(f"Total cells: {geometry_info['total_cells']}")
+            for layer, info in sorted(geometry_info['layers'].items()):
+                print(f"\nLayer {layer}:")
+                for key, value in info.items():
+                    print(f"  {key}: {value}")
+            
+    
+            # Define thresholds to analyze
+            #hit_thresholds = [1, 2, 3, 4, 5,6,7,8,9, 10]
+            hit_thresholds = [1, 2,3,4]
+            stats = analyze_detector_hits(event_trees,detector_name=detector_name,
+                                            config=detector_config,
+                                            hit_thresholds=hit_thresholds,
+                                            geometry_file=xml_file,
+                                            constants=constants,
+                                            main_xml=main_xml,
+                                            remove_zeros=remove_zeros,
+                                            time_cut=time_cut,
+                                            calo_hit_time_def=calo_hit_time_def,
+                                            energy_thresholds=energy_thresholds)
+            
+            # Create visualizations
+            plot_occupancy_analysis(stats, geometry_info, output_prefix=detector_name,time_cut=time_cut)
+            
+            plot_timing_analysis(stats, geometry_info, output_prefix=detector_name)
 
-                # Print detailed statistics for threshold=1
-                for threshold in range(1, 10):  # Loop from 1 to 5 (inclusive)
-                    print(f"\nDetailed occupancy statistics (threshold={threshold}):")
+            # Print detailed statistics for threshold=1
+            for threshold in range(1, 10):  # Loop from 1 to 5 (inclusive)
+                print(f"\nDetailed occupancy statistics (threshold={threshold}):")
 
-                    print(stats['threshold_stats'])
+                print(stats['threshold_stats'])
+                
+                # for layer, info in sorted(stats['threshold_stats'][threshold]['per_layer'].items()):
+                #     if layer in geometry_info['layers']:
+                #         print(f"\nLayer {layer}:")
+                #         #print(f"  Cells hit: {info['cells_hit']}")
+                #         print(f"  Cells hit: {info['pixels_hit']}")
+
+                #         print(f"  Total hits: {info['total_hits']}")
+                #         print(f"  Occupancy: {info['occupancy']*100:.10f}%")
+                #         print(f"  Mean hits per hit cell: {info['mean_hits']:.10f}")
+            
                     
-                    # for layer, info in sorted(stats['threshold_stats'][threshold]['per_layer'].items()):
-                    #     if layer in geometry_info['layers']:
-                    #         print(f"\nLayer {layer}:")
-                    #         #print(f"  Cells hit: {info['cells_hit']}")
-                    #         print(f"  Cells hit: {info['pixels_hit']}")
-
-                    #         print(f"  Total hits: {info['total_hits']}")
-                    #         print(f"  Occupancy: {info['occupancy']*100:.10f}%")
-                    #         print(f"  Mean hits per hit cell: {info['mean_hits']:.10f}")
-                
-                        
-            except Exception as e:
-                print(f"Error processing {detector_name}: {str(e)}")
-                traceback.print_exc()
+        except Exception as e:
+            print(f"Error processing {detector_name}: {str(e)}")
+            traceback.print_exc()
