@@ -33,7 +33,7 @@ def plot_hit_distribution(stats, output_file=None):
     ax1.bar(hits, counts)
     ax1.set_xlabel('Hits per cell',fontsize=18)
     ax1.set_ylabel('Number of cells',fontsize=18)
-    ax1.set_title('Hit Distribution',fontsize=20)
+    #ax1.set_title('Hit Distribution',fontsize=20)
     ax1.set_yscale('log')
     
     # Per-layer statistics
@@ -44,7 +44,7 @@ def plot_hit_distribution(stats, output_file=None):
     ax2.bar(layers, occupancies)
     ax2.set_xlabel('Layer',fontsize=18)
     ax2.set_ylabel('Number of cells hit',fontsize=18)
-    ax2.set_title('Cells Hit per Layer',fontsize=20)
+    #ax2.set_title('Cells Hit per Layer',fontsize=20)
     
     plt.tight_layout()
     
@@ -84,12 +84,15 @@ def plot_occupancy_analysis(stats, geometry_info, output_prefix=None, time_cut=-
     time_cut = stats['time_cut']
     print(f"Time cut: {time_cut}")
 
-    title_text = f'Occupancy Analysis for {geometry_info["detector_name"]}'
+    title_text = f'SiD_o2_v04 - {geometry_info["detector_name"]}'
     if time_cut > 0:
         title_text += f' (t<{time_cut} ns)'
 
     # Add the C^3 info and use rich text formatting for "Preliminary"
-    title_text += r'                   SiD_o2_v04@C$^{3}$-550 (266 bunches) - $\boldsymbol{\it{Preliminary}}$'
+    #title_text += r'                   SiD_o2_v04@C$^{3}$-550 (266 bunches) - $\boldsymbol{\it{Preliminary}}$'
+    #title_text += r'                   C$^{3}$ 550 - s.u. (150 bunches) - $\boldsymbol{\it{Preliminary}}$'
+    title_text += r'                   C$^{3}$ 250 - s.u. (266 bunches) - $\boldsymbol{\it{Preliminary}}$'
+
     fig.suptitle(title_text, fontsize=24)
 
     gs = plt.GridSpec(2, 2)
@@ -99,7 +102,6 @@ def plot_occupancy_analysis(stats, geometry_info, output_prefix=None, time_cut=-
     thresholds = sorted(stats['threshold_stats'].keys())
 
 
-
     for layer in sorted(geometry_info['layers'].keys()):
         #occupancies = [stats['threshold_stats'][t]['per_layer'].get(layer, {'occupancy': 0})['occupancy'] * 100 
         #              for t in thresholds]
@@ -107,11 +109,11 @@ def plot_occupancy_analysis(stats, geometry_info, output_prefix=None, time_cut=-
                       for t in thresholds]
         ax1.plot(thresholds, occupancies, 'o-', label=f'Layer {layer}')
     
-    ax1.set_xlabel('Hit Threshold',fontsize=18)
+    ax1.set_xlabel('Buffer depth',fontsize=18)
     #ax1.set_ylabel('Occupancy (%)')
     ax1.set_ylabel('Occupancy',fontsize=18)
     ax1.set_yscale('log')
-    ax1.set_title('Occupancy vs Hit Threshold by Layer',fontsize=20)
+    #ax1.set_title('Occupancy vs Hit Threshold by Layer',fontsize=20)
     ax1.grid(True)
     ax1.legend()
     
@@ -124,15 +126,38 @@ def plot_occupancy_analysis(stats, geometry_info, output_prefix=None, time_cut=-
     # Create the edges first
     hist, xedges, yedges = np.histogram2d(phi_vals, r_vals, bins=[51, 21])
 
-    pcm = ax2.pcolormesh(xedges[:-1], yedges[:-1], hist.T, 
+
+    # Calculate bin sizes
+    dphi = xedges[1] - xedges[0]
+    dr = yedges[1] - yedges[0]
+
+    z_length = 0
+    for layer_id, layer_info in geometry_info['layers'].items():
+        if 'z_length' in layer_info:
+            z_length = max(z_length, layer_info['z_length'])
+    
+
+    r_centers = 0.5 * (yedges[1:] + yedges[:-1])
+
+    bin_areas = np.zeros((len(xedges)-1, len(yedges)-1))
+    for j in range(len(r_centers)):
+        bin_areas[:, j] = r_centers[j] * z_length * dphi
+
+    # Calculate cylindrical surface area: r × dphi × Z_length
+    #bin_areas = r_centers * dphi * z_length
+
+    hist_normalized = hist / (bin_areas + 1e-10)
+    print("dphi = ",dphi,",  z_length = ",z_length,"mm ,  bin_area[0,0] = ",bin_areas[0,0],"mm²")
+
+    pcm = ax2.pcolormesh(xedges[:-1], yedges[:-1], hist_normalized.T, 
                          shading='auto',cmap='viridis',
                          vmin=0,
                          edgecolors='none')
     ax2.set_facecolor('#3F007D')
     ax2.set_ylabel('R [mm]',fontsize=18)
     ax2.set_xlabel('Phi [rad]',fontsize=18)
-    ax2.set_title('Hit Distribution (R-Phi)',fontsize=20)
-    plt.colorbar(pcm, ax=ax2, label='Hits')
+    #ax2.set_title('Hit Distribution (R-Phi)',fontsize=20)
+    plt.colorbar(pcm, ax=ax2, label='Hits/mm²')
 
     # 3. R-Z hit distribution
     ax3 = fig.add_subplot(gs[1, :])
@@ -141,12 +166,34 @@ def plot_occupancy_analysis(stats, geometry_info, output_prefix=None, time_cut=-
     r_vals = ak.to_numpy(stats['positions']['r'])
     hist, xedges, yedges = np.histogram2d(z_vals, r_vals, bins=[100, 30])
     
-    pcm = ax3.pcolormesh(xedges[:-1], yedges[:-1], hist.T, shading='auto')
+    # Calculate bin sizes for normalization
+    # Get the center of each radial bin
+    r_centers = 0.5 * (yedges[1:] + yedges[:-1])
+    dz = xedges[1] - xedges[0]
+
+    cylindrical_areas = np.outer(np.ones(len(xedges)-1), 2*np.pi*r_centers*dz)  # Area in mm²
+
+    dr = yedges[1] - yedges[0]
+
+    bin_areas = np.zeros((len(xedges)-1, len(yedges)-1))
+    for i in range(len(xedges)-1):
+        for j in range(len(yedges)-1):
+            bin_areas[i, j] = dz * dr
+  
+    #hist_normalized = hist / (bin_areas + 1e-10)
+    hist_normalized = hist / cylindrical_areas
+
+    print("zmin = ",np.min(z_vals), " mm, zmax = ", np.max(z_vals),"mm , dz,", dz, " mm, rmin = ", np.min(r_vals), " mm, rmax = ", np.max(r_vals), " mm, dr = ",  dr, " mm, bin area = ", bin_areas[0,0], " mm²")
+
+
+    pcm = ax3.pcolormesh(xedges[:-1], yedges[:-1], hist_normalized.T, shading='auto')
     ax3.set_xlabel('Z [mm]',fontsize=18)
     ax3.set_ylabel('R [mm]',fontsize=18)
-    ax3.set_title('Hit Distribution (R-Z)',fontsize=20)
-    plt.colorbar(pcm, ax=ax3, label='Hits')
+    #ax3.set_title('Hit Distribution (R-Z)',fontsize=20)
+    plt.colorbar(pcm, ax=ax3, label='Hits/mm²')
     
+
+
     plt.tight_layout()
     
     if output_prefix:
@@ -194,7 +241,7 @@ def plot_timing_analysis(stats, geometry_info, output_prefix=None):
     ax1.hist(time_vals, bins=100, range=(0, 100), histtype='step')
     ax1.set_xlabel('Time [ns]',fontsize=18)
     ax1.set_ylabel('Hits',fontsize=18)
-    ax1.set_title('Timing Distribution',fontsize=20)
+    #ax1.set_title('Timing Distribution',fontsize=20)
     ax1.grid(True)
 
     # 2. Timing vs R
@@ -296,9 +343,9 @@ def plot_detector_analysis(stats, geometry_info, detector_name, output_prefix=No
                       for t in thresholds]
         ax1.plot(thresholds, occupancies, 'o-', label=f'Layer {layer}')
     
-    ax1.set_xlabel('Hit Threshold',fontsize=18)
+    ax1.set_xlabel('Buffer depth',fontsize=18)
     ax1.set_ylabel('Occupancy (%)',fontsize=18)
-    ax1.set_title(f'{detector_name} Occupancy vs Hit Threshold by Layer',fontsize=20)
+    #ax1.set_title(f'{detector_name} Occupancy vs Hit Threshold by Layer',fontsize=20)
     ax1.grid(True)
     ax1.legend()
     
@@ -309,24 +356,59 @@ def plot_detector_analysis(stats, geometry_info, detector_name, output_prefix=No
     r_vals = ak.to_numpy(stats['positions']['r'])
     hist, _, _ = np.histogram2d(phi_vals, r_vals, bins=[50, 20])
     r_edges = np.linspace(0, max(r_vals), 21)
+    r_bin_width = np.diff(r_edges)[0]  # R bin width in mm
     phi_edges = np.linspace(-np.pi, np.pi, 51)
     R, PHI = np.meshgrid(r_edges[:-1], phi_edges[:-1])
     
-    pcm = ax2.pcolormesh(PHI, R, hist, shading='auto')
-    ax2.set_title(f'{detector_name} Hit Distribution (R-Phi)',fontsize=20)
-    plt.colorbar(pcm, ax=ax2, label='Hits')
+    phi_bin_width = np.diff(phi_edges)[0]  # R bin width in mm
+    r_bin_width = np.diff(r_edges)[0]  # R bin width in mm
+
+
+    # Calculate bin sizes
+    dphi = phi_edges[1] - phi_edges[0]
+    dr = r_edges[1] - r_edges[0]
+
+    r_centers = 0.5 * (r_edges[1:] + r_edges[:-1])
+
+    bin_areas = np.zeros((len(phi_edges)-1, len(r_edges)-1))
+    for j in range(len(r_centers)):
+        bin_areas[:, j] = r_centers[j] * dr * dphi
+
+    hist_normalized = hist / (bin_areas + 1e-10)
+
+        
+
+    # Calculate bin area (rad × ns)
+    bin_area = phi_bin_width * phi_bin_width
+    density = hist.T / bin_area
+
+    pcm = ax2.pcolormesh(PHI, R, hist_normalized.T, shading='auto')
+    #ax2.set_title(f'{detector_name} Hit Distribution (R-Phi)',fontsize=20)
+    plt.colorbar(pcm, ax=ax2, label='Hits/mm²')
     
+    # ax2.text(0.02, 0.02, f"Bin size: {phi_bin_width:.2f} rad × {t_bin_width:.1f} ns", 
+    #         transform=ax4.transAxes, bbox=dict(facecolor='white', alpha=0.7))
+
     # 3. R-Z hit distribution
     ax3 = fig.add_subplot(gs[1, :])
 
     z_vals = ak.to_numpy(stats['positions']['z'])
     hist, xedges, yedges = np.histogram2d(z_vals, r_vals, bins=[100, 20])
     
-    pcm = ax3.pcolormesh(xedges[:-1], yedges[:-1], hist.T, shading='auto')
+
+    # Calculate bin sizes for normalization
+    dz = xedges[1] - xedges[0]
+    dr = yedges[1] - yedges[0]
+
+    bin_area = dz * dr
+    print("dz = ",dz,"mm,  dr = ",dr,"mm ,  bin_area = ",bin_area,"mm²")
+    hist_normalized = hist / bin_area
+
+    pcm = ax3.pcolormesh(xedges[:-1], yedges[:-1], hist_normalized.T, shading='auto')
     ax3.set_xlabel('Z [mm]',fontsize=18)
     ax3.set_ylabel('R [mm]',fontsize=18)
-    ax3.set_title(f'{detector_name} Hit Distribution (R-Z)',fontsize=20)
-    plt.colorbar(pcm, ax=ax3, label='Hits')
+    #ax3.set_title(f'{detector_name} Hit Distribution (R-Z)',fontsize=20)
+    plt.colorbar(pcm, ax=ax3, label='Hits/mm²')
     
     plt.tight_layout()
     

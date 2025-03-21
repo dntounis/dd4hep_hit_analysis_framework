@@ -20,6 +20,8 @@ from src.geometry_parsing.geometry_info import get_geometry_info
 
 from src.detector_config import get_detector_configs, get_xmls
 
+from src.hit_analysis.train_analyzer import analyze_detectors_and_plot_by_train
+
 
 
 
@@ -337,8 +339,10 @@ seeds_batch_16 = [
 ]
 
 
-#seeds=seeds_batch_1+seeds_batch_2+seeds_batch_3+seeds_batch_4+seeds_batch_5+seeds_batch_6+seeds_batch_7+seeds_batch_8+seeds_batch_9+seeds_batch_10+seeds_batch_11+seeds_batch_12+seeds_batch_13+seeds_batch_14+seeds_batch_15+seeds_batch_16
-seeds=[seeds_batch_1,seeds_batch_2,seeds_batch_3,seeds_batch_4,seeds_batch_5,seeds_batch_6,seeds_batch_7,seeds_batch_8,seeds_batch_9,seeds_batch_10,seeds_batch_11,seeds_batch_12,seeds_batch_13,seeds_batch_14,seeds_batch_15,seeds_batch_16]
+#seeds=[seeds_batch_1,seeds_batch_2,seeds_batch_3,seeds_batch_4,seeds_batch_5,seeds_batch_6,seeds_batch_7,seeds_batch_8,seeds_batch_9,seeds_batch_10,seeds_batch_11,seeds_batch_12,seeds_batch_13,seeds_batch_14,seeds_batch_15,seeds_batch_16]
+
+seeds=[seeds_batch_1,seeds_batch_2,seeds_batch_3,seeds_batch_4,seeds_batch_5,seeds_batch_6,seeds_batch_7]#,seeds_batch_6,seeds_batch_7,seeds_batch_8,seeds_batch_9,seeds_batch_10]
+
 seeds = ak.flatten(seeds)
 
 
@@ -347,14 +351,14 @@ seeds = ak.flatten(seeds)
 print(len(seeds))
 
 
-
+bunches_per_train = 266
 
 # Directory path and filename pattern
-# base_path = "/fs/ddn/sdf/group/atlas/d/dntounis/C^3/bkg_studies_2023/GuineaPig_July_2024/output_new/C3_250_PS1/ddsim/"
-# filename_pattern = "ddsim_C3_250_PS1_seed_{}.edm4hep.root"
+base_path = "/fs/ddn/sdf/group/atlas/d/dntounis/C^3/bkg_studies_2023/GuineaPig_July_2024/output_new/C3_250_PS1/ddsim/"
+filename_pattern = "ddsim_C3_250_PS1_v2_seed_{}.edm4hep.root"
 
-base_path = "/fs/ddn/sdf/group/atlas/d/dntounis/C^3/bkg_studies_2023/GuineaPig_July_2024/output_new/C3_550_PS1/ddsim/"
-filename_pattern = "ddsim_C3_550_PS1_v2_seed_{}_MERGED.edm4hep.root"
+#base_path = "/fs/ddn/sdf/group/atlas/d/dntounis/C^3/bkg_studies_2023/GuineaPig_July_2024/output_new/C3_550_PS2/ddsim/"
+#filename_pattern = "ddsim_C3_550_PS2_v2_seed_{}_MERGED.edm4hep.root"
 
 
 # Open all files with different seeds and store them in a list
@@ -387,18 +391,18 @@ muon_endcap_xml = xmls['muon_endcap_xml']
 # Try analyzing all detectors again
 detectors_to_analyze = [
     ('SiVertexBarrel', vertex_barrel_xml),
-    ('SiVertexEndcap', vertex_endcap_xml),
-    ('SiTrackerBarrel', tracker_barrel_xml),
-    ('SiTrackerEndcap', tracker_endcap_xml),
-    ('SiTrackerForward', tracker_forward_xml),
-    ('ECalBarrel', ecal_barrel_xml),
-    ('ECalEndcap', ecal_endcap_xml),
-    ('HCalBarrel', hcal_barrel_xml),
-    ('HCalEndcap', hcal_endcap_xml),
-    ('BeamCal', beamcal_xml),
-    ('LumiCal', lumical_xml),
-    ('MuonBarrel', muon_barrel_xml),
-    ('MuonEndcap', muon_endcap_xml)
+    # ('SiVertexEndcap', vertex_endcap_xml),
+    # ('SiTrackerBarrel', tracker_barrel_xml),
+    # ('SiTrackerEndcap', tracker_endcap_xml),
+    # ('SiTrackerForward', tracker_forward_xml),
+    # ('ECalBarrel', ecal_barrel_xml),
+    # ('ECalEndcap', ecal_endcap_xml),
+    # ('HCalBarrel', hcal_barrel_xml),
+    # ('HCalEndcap', hcal_endcap_xml),
+    # ('BeamCal', beamcal_xml),
+    # ('LumiCal', lumical_xml),
+    # ('MuonBarrel', muon_barrel_xml),
+    # ('MuonEndcap', muon_endcap_xml)
 ]
 
 
@@ -420,6 +424,8 @@ for detector_name, xml_file in detectors_to_analyze:
         constants = parse_detector_constants(main_xml, detector_name)
         geometry_info = get_geometry_info(xml_file, detector_config, constants=constants)
         
+        print("Jim: geometry info = ", geometry_info)
+
         print(f"Total cells: {geometry_info['total_cells']}")
         print("Layers:")
         for layer, info in sorted(geometry_info['layers'].items()):
@@ -447,22 +453,42 @@ custom_thresholds = {
 
 
 
+# detectors_to_analyze = [
+#     ('SiVertexBarrel', vertex_barrel_xml),
+#     ('SiVertexEndcap', vertex_endcap_xml)
+# ]
+
 detectors_to_analyze = [
-    ('SiVertexBarrel', vertex_barrel_xml),
-    ('SiVertexEndcap', vertex_endcap_xml)
+    ('SiVertexBarrel', vertex_barrel_xml)
 ]
 
 
-
     
-analyze_detectors_and_plot(DETECTOR_CONFIGS=DETECTOR_CONFIGS,
-                           detectors_to_analyze=detectors_to_analyze,
-                           event_trees=events_trees,
-                           main_xml=main_xml,
-                           remove_zeros=1,
-                           time_cut=time_cut,
-                           calo_hit_time_def=calo_hit_time_def, # Use cumulative energy for time
-                           energy_thresholds=custom_thresholds)
+# analyze_detectors_and_plot(DETECTOR_CONFIGS=DETECTOR_CONFIGS,
+#                            detectors_to_analyze=detectors_to_analyze,
+#                            event_trees=events_trees,
+#                            main_xml=main_xml,
+#                            remove_zeros=1,
+#                            time_cut=time_cut,
+#                            calo_hit_time_def=calo_hit_time_def, # Use cumulative energy for time
+#                            energy_thresholds=custom_thresholds)
+
+events_trees_by_train = analyze_detectors_and_plot_by_train(
+    DETECTOR_CONFIGS=DETECTOR_CONFIGS,
+    detectors_to_analyze=detectors_to_analyze,
+    all_seeds=seeds,
+    bunches_per_train=bunches_per_train,
+    main_xml=main_xml,
+    base_path=base_path,
+    filename_pattern=filename_pattern,
+    remove_zeros=True,
+    time_cut=time_cut,
+    calo_hit_time_def=calo_hit_time_def,
+    energy_thresholds=custom_thresholds
+)
+
+# print(f"Completed train-based analysis with {len(events_trees_by_train)} trains of {bunches_per_train} bunches each")
+
 
 # detectors_to_analyze = [
 #     ('SiTrackerBarrel', tracker_barrel_xml),
