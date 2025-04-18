@@ -341,7 +341,9 @@ seeds_batch_16 = [
 
 #seeds=[seeds_batch_1,seeds_batch_2,seeds_batch_3,seeds_batch_4,seeds_batch_5,seeds_batch_6,seeds_batch_7,seeds_batch_8,seeds_batch_9,seeds_batch_10,seeds_batch_11,seeds_batch_12,seeds_batch_13,seeds_batch_14,seeds_batch_15,seeds_batch_16]
 
-seeds=[seeds_batch_1,seeds_batch_2,seeds_batch_3,seeds_batch_4,seeds_batch_5,seeds_batch_6,seeds_batch_7]#,seeds_batch_6,seeds_batch_7,seeds_batch_8,seeds_batch_9,seeds_batch_10]
+#seeds=[seeds_batch_1,seeds_batch_2,seeds_batch_3,seeds_batch_4,seeds_batch_5,seeds_batch_6,seeds_batch_7,seeds_batch_8]#,seeds_batch_6,seeds_batch_7,seeds_batch_8,seeds_batch_9,seeds_batch_10]
+
+seeds=[seeds_batch_1,seeds_batch_2,seeds_batch_3]
 
 seeds = ak.flatten(seeds)
 

@@ -30,6 +30,7 @@ def split_seeds_into_trains(seeds, bunches_per_train):
             trains.append(train)
     return trains
 
+
 def average_train_results(train_results):
     """
     Average occupancy statistics across multiple trains.
@@ -78,9 +79,23 @@ def average_train_results(train_results):
                         values.append(train['threshold_stats'][threshold]['per_layer'][layer].get(stat, 0))
                 
                 if values:
+                    # Calculate mean
                     layer_stats[stat] = sum(values) / len(values)
+
+                    # Calculate standard deviation and standard error
+                    if len(values) > 1:
+                        std_dev = np.std(values, ddof=1)  # Sample standard deviation
+                        std_error = std_dev / np.sqrt(len(values))
+                        layer_stats[f'{stat}_std_dev'] = std_dev
+                        layer_stats[f'{stat}_error'] = std_error
+                    else:
+                        layer_stats[f'{stat}_std_dev'] = 0
+                        layer_stats[f'{stat}_error'] = 0
                 else:
                     layer_stats[stat] = 0
+                    layer_stats[f'{stat}_std_dev'] = 0
+                    layer_stats[f'{stat}_error'] = 0
+
             
             new_per_layer[layer] = layer_stats
         
@@ -92,6 +107,11 @@ def average_train_results(train_results):
             values = [train['threshold_stats'][threshold].get(stat, 0) for train in train_results]
             if values:
                 threshold_stats[stat] = sum(values) / len(values)
+                if len(values) > 1:
+                    std_dev = np.std(values, ddof=1)
+                    std_error = std_dev / np.sqrt(len(values))
+                    threshold_stats[f'{stat}_std_dev'] = std_dev
+                    threshold_stats[f'{stat}_error'] = std_error
     
     # We're keeping the positions from the first train just for visualization
     # This is ok since we're focusing on averaged occupancy statistics
@@ -264,8 +284,12 @@ def plot_train_averaged_occupancy_analysis(stats, geometry_info, output_prefix=N
         #              for t in thresholds]
         occupancies = [stats['threshold_stats'][t]['per_layer'].get(layer, {'occupancy': 0})['occupancy'] 
                       for t in thresholds]
-        ax1.plot(thresholds, occupancies, 'o-', label=f'Layer {layer}')
-    
+        occupancies_errors = [stats['threshold_stats'][t]['per_layer'].get(layer, {'occupancy_error': 0})['occupancy_error'] 
+                      for t in thresholds]
+        #ax1.plot(thresholds, occupancies, 'o-', label=f'Layer {layer}')
+        print("!!!Jim: layer = ",layer, "occupancies = ",occupancies, "occupancies_errors = ",occupancies_errors)
+        ax1.errorbar(thresholds, occupancies, yerr=occupancies_errors, fmt='o-', label=f'Layer {layer}')
+
     ax1.set_xlabel('Buffer depth',fontsize=18)
     #ax1.set_ylabel('Occupancy (%)')
     ax1.set_ylabel('Occupancy',fontsize=18)
