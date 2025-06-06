@@ -2,6 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import awkward as ak
 import traceback
+
 import mplhep as hep 
 
 from src.detector_config import get_detector_configs, get_xmls
@@ -54,7 +55,7 @@ def plot_hit_distribution(stats, output_file=None):
 
 
 
-def plot_occupancy_analysis(stats, geometry_info, output_prefix=None, time_cut=-1):
+def plot_occupancy_analysis(stats, geometry_info, output_prefix=None, time_cut=-1, nlayer_batch=1):
     """
     Create detailed visualizations of the occupancy analysis
     
@@ -66,6 +67,9 @@ def plot_occupancy_analysis(stats, geometry_info, output_prefix=None, time_cut=-
         Geometry information
     output_prefix : str, optional
         If provided, save plots with this prefix
+    time_cut : float, optional
+        Cut on hit time in ns (-1 for no cut)
+    nlayer_batch : int, optional
     """
     # Create figure with multiple subplots
     fig = plt.figure(figsize=(15, 10))
@@ -91,7 +95,8 @@ def plot_occupancy_analysis(stats, geometry_info, output_prefix=None, time_cut=-
     # Add the C^3 info and use rich text formatting for "Preliminary"
     #title_text += r'                   SiD_o2_v04@C$^{3}$-550 (266 bunches) - $\boldsymbol{\it{Preliminary}}$'
     #title_text += r'                   C$^{3}$ 550 - s.u. (150 bunches) - $\boldsymbol{\it{Preliminary}}$'
-    title_text += r'                   C$^{3}$ 250 - s.u. (266 bunches) - $\boldsymbol{\it{Preliminary}}$'
+    #title_text += r'                   C$^{3}$ 250 - s.u. (266 bunches) - $\boldsymbol{\it{Preliminary}}$'
+    title_text += r'                   C$^{3}$ 250 - Baseline (133 bunches) - $\boldsymbol{\it{Preliminary}}$'
 
     fig.suptitle(title_text, fontsize=24)
 
@@ -101,19 +106,98 @@ def plot_occupancy_analysis(stats, geometry_info, output_prefix=None, time_cut=-
     ax1 = fig.add_subplot(gs[0, 0])
     thresholds = sorted(stats['threshold_stats'].keys())
 
-
-    for layer in sorted(geometry_info['layers'].keys()):
-        #occupancies = [stats['threshold_stats'][t]['per_layer'].get(layer, {'occupancy': 0})['occupancy'] * 100 
-        #              for t in thresholds]
-        occupancies = [stats['threshold_stats'][t]['per_layer'].get(layer, {'occupancy': 0})['occupancy'] 
-                      for t in thresholds]
-        ax1.plot(thresholds, occupancies, 'o-', label=f'Layer {layer}')
+    # Get all available layers and sort them
+    all_layers = sorted(geometry_info['layers'].keys())
     
+    # Create layer batches
+    layer_batches = []
+    for i in range(0, len(all_layers), nlayer_batch):
+        batch = all_layers[i:i+nlayer_batch]
+        if batch:  # Skip empty batches
+            layer_batches.append(batch)
+
+    # Plot occupancy with error bars for each batch
+    for i, batch in enumerate(layer_batches):
+        # Label for the batch
+        if len(batch) == 1:
+            batch_label = f'Layer {batch[0]}'
+        else:
+            batch_label = f'Layers {batch[0]}-{batch[-1]}'
+        
+        # Calculate average occupancy and errors for each threshold
+        avg_occupancies = []
+        occupancy_errors = []
+        
+        for t in thresholds:
+            # Get all relevant stats for layers in this batch
+            batch_stats = []
+            
+            for layer in batch:
+                if layer in stats['threshold_stats'][t]['per_layer']:
+                    layer_stats = stats['threshold_stats'][t]['per_layer'][layer]
+                    
+                    # Extract key statistics
+                    cells_hit = layer_stats.get('cells_above_threshold', layer_stats.get('cells_hit', 0))
+                    total_cells = geometry_info['layers'][layer].get('total_cells', 1)
+                    occupancy = cells_hit / total_cells if total_cells > 0 else 0
+                    
+                    # Store stats for this layer
+                    batch_stats.append({
+                        'cells_hit': cells_hit,
+                        'total_cells': total_cells,
+                        'occupancy': occupancy
+                    })
+            
+            # Calculate average occupancy across batch
+            if batch_stats:
+                # Method 1: Simple average of occupancies
+                avg_occ = sum(s['occupancy'] for s in batch_stats) / len(batch_stats)
+                
+                # Calculate statistical error
+                # For binomial statistics, error = sqrt(p*(1-p)/N) where p is occupancy and N is total cells
+                # For small occupancies, approximate as sqrt(p/N)
+                total_cells_hit = sum(s['cells_hit'] for s in batch_stats)
+                total_cells_all = sum(s['total_cells'] for s in batch_stats)
+                
+                # Use Poisson approximation for low occupancy
+                if avg_occ > 0:
+                    # Standard error: sqrt(p*(1-p)/N)
+                    # For low occupancy, p*(1-p) ≈ p
+                    error = np.sqrt(avg_occ * (1 - avg_occ) / total_cells_all)
+                    
+                    # For very low occupancy where standard error might be unreliable:
+                    if total_cells_hit < 10:  
+                        # Alternative: use sqrt(k)/N where k is cell count (Poisson error)
+                        error = np.sqrt(total_cells_hit) / total_cells_all
+                else:
+                    # Handle zero occupancy case (upper limit)
+                    error = 1.0 / total_cells_all if total_cells_all > 0 else 0
+            else:
+                avg_occ = 0
+                error = 0
+                
+            avg_occupancies.append(avg_occ)
+            occupancy_errors.append(error)
+        
+        # Plot with error bars
+        ax1.errorbar(
+            thresholds, 
+            avg_occupancies, 
+            yerr=occupancy_errors,
+            fmt='o-', 
+            label=batch_label,
+            capsize=3
+        )
+    
+
+ 
     ax1.set_xlabel('Buffer depth',fontsize=18)
     #ax1.set_ylabel('Occupancy (%)')
     ax1.set_ylabel('Occupancy',fontsize=18)
     ax1.set_yscale('log')
     #ax1.set_title('Occupancy vs Hit Threshold by Layer',fontsize=20)
+    ax1.set_xticks(thresholds)  # Set ticks to the actual threshold values
+    ax1.set_xticklabels([str(int(t)) for t in thresholds])  # Format as integers
     ax1.grid(True)
     ax1.legend()
     
@@ -225,7 +309,8 @@ def plot_timing_analysis(stats, geometry_info, output_prefix=None):
         title_text += f' (t<{time_cut} ns)'
 
     # Add the C^3 info and use rich text formatting for "Preliminary"
-    title_text += r'                   SiD_o2_v04@C$^{3}$-550 (266 bunches) - $\boldsymbol{\it{Preliminary}}$'
+    #title_text += r'                   SiD_o2_v04@C$^{3}$-550 (266 bunches) - $\boldsymbol{\it{Preliminary}}$'
+    title_text += r'                   C$^{3}$ 250 - Baseline (133 bunches) - $\boldsymbol{\it{Preliminary}}$'
     fig.suptitle(title_text, fontsize=24)
 
       
@@ -346,6 +431,8 @@ def plot_detector_analysis(stats, geometry_info, detector_name, output_prefix=No
     ax1.set_xlabel('Buffer depth',fontsize=18)
     ax1.set_ylabel('Occupancy (%)',fontsize=18)
     #ax1.set_title(f'{detector_name} Occupancy vs Hit Threshold by Layer',fontsize=20)
+    ax1.set_xticks(thresholds)  # Set ticks to the actual threshold values
+    ax1.set_xticklabels([str(int(t)) for t in thresholds])  # Format as integers
     ax1.grid(True)
     ax1.legend()
     
@@ -441,7 +528,7 @@ def print_occupancy_statistics(results, geometry_info):
 
 def analyze_detectors_and_plot(DETECTOR_CONFIGS=None, detectors_to_analyze=None, event_trees=None,
                               main_xml=None, remove_zeros=True, time_cut=-1, 
-                              calo_hit_time_def=0, energy_thresholds=None):
+                              calo_hit_time_def=0, energy_thresholds=None, nlayer_batch=1):
     """
     Analyze detectors and create plots
     
@@ -463,6 +550,8 @@ def analyze_detectors_and_plot(DETECTOR_CONFIGS=None, detectors_to_analyze=None,
         0: use min time of contributions, 1: time when cumulative energy exceeds threshold
     energy_thresholds : dict, optional
         Dictionary of energy thresholds for different detector types (see analyze_detector_hits)
+    nlayer_batch : int
+        Number of layers to group together in occupancy plots
     """
     # Default thresholds
     if energy_thresholds is None:
@@ -511,7 +600,7 @@ def analyze_detectors_and_plot(DETECTOR_CONFIGS=None, detectors_to_analyze=None,
                                             energy_thresholds=energy_thresholds)
             
             # Create visualizations
-            plot_occupancy_analysis(stats, geometry_info, output_prefix=detector_name,time_cut=time_cut)
+            plot_occupancy_analysis(stats, geometry_info, output_prefix=detector_name,time_cut=time_cut,nlayer_batch=nlayer_batch)
             
             plot_timing_analysis(stats, geometry_info, output_prefix=detector_name)
 

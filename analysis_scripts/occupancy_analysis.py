@@ -343,7 +343,7 @@ seeds_batch_16 = [
 
 #seeds=[seeds_batch_1,seeds_batch_2,seeds_batch_3,seeds_batch_4,seeds_batch_5,seeds_batch_6,seeds_batch_7,seeds_batch_8]#,seeds_batch_6,seeds_batch_7,seeds_batch_8,seeds_batch_9,seeds_batch_10]
 
-seeds=[seeds_batch_1,seeds_batch_2,seeds_batch_3]
+seeds=[seeds_batch_1,seeds_batch_2]
 
 seeds = ak.flatten(seeds)
 
@@ -353,7 +353,7 @@ seeds = ak.flatten(seeds)
 print(len(seeds))
 
 
-bunches_per_train = 266
+bunches_per_train = 133 #30#266
 
 # Directory path and filename pattern
 base_path = "/fs/ddn/sdf/group/atlas/d/dntounis/C^3/bkg_studies_2023/GuineaPig_July_2024/output_new/C3_250_PS1/ddsim/"
@@ -446,7 +446,7 @@ calo_hit_time_def = 1
 
 #Jim: default energy value in edm4hep is in GeV!!!
 custom_thresholds = {
-    'silicon': 4e-6,               # 4 keV for silicon (bit higher)
+    'silicon': 0.6e-6,               # 0.6 keV for silicon 
     'ecal_hits': 100e-6,              # 100 keV for ECAL hits 
     'ecal_contributions': 1e-20,   # very small for ECAL contributions
     'hcal_hits': 10e-3,             # 5 MeV for HCAL hits
@@ -454,15 +454,14 @@ custom_thresholds = {
 }
 
 
+detectors_to_analyze = [
+    ('SiVertexBarrel', vertex_barrel_xml),
+    ('SiVertexEndcap', vertex_endcap_xml)
+]
 
 # detectors_to_analyze = [
-#     ('SiVertexBarrel', vertex_barrel_xml),
-#     ('SiVertexEndcap', vertex_endcap_xml)
+#     ('SiVertexBarrel', vertex_barrel_xml)
 # ]
-
-detectors_to_analyze = [
-    ('SiVertexBarrel', vertex_barrel_xml)
-]
 
 
     
@@ -486,70 +485,96 @@ events_trees_by_train = analyze_detectors_and_plot_by_train(
     remove_zeros=True,
     time_cut=time_cut,
     calo_hit_time_def=calo_hit_time_def,
-    energy_thresholds=custom_thresholds
+    energy_thresholds=custom_thresholds,
+    nlayer_batch=1
 )
 
 # print(f"Completed train-based analysis with {len(events_trees_by_train)} trains of {bunches_per_train} bunches each")
 
 
-# detectors_to_analyze = [
-#     ('SiTrackerBarrel', tracker_barrel_xml),
-#     ('SiTrackerEndcap', tracker_endcap_xml),
-#     ('SiTrackerForward', tracker_forward_xml)
-# ]
+detectors_to_analyze = [
+    ('SiTrackerBarrel', tracker_barrel_xml),
+    ('SiTrackerEndcap', tracker_endcap_xml),
+    ('SiTrackerForward', tracker_forward_xml)
+]
 
 
-# analyze_detectors_and_plot(DETECTOR_CONFIGS=DETECTOR_CONFIGS,
-#                            detectors_to_analyze=detectors_to_analyze,
-#                            event_trees=events_trees,
-#                            main_xml=main_xml,
-#                            remove_zeros=1,
-#                            time_cut=time_cut,
-#                            calo_hit_time_def=calo_hit_time_def, # Use cumulative energy for time
-#                            energy_thresholds=custom_thresholds)
+events_trees_by_train = analyze_detectors_and_plot_by_train(
+    DETECTOR_CONFIGS=DETECTOR_CONFIGS,
+    detectors_to_analyze=detectors_to_analyze,
+    all_seeds=seeds,
+    bunches_per_train=bunches_per_train,
+    main_xml=main_xml,
+    base_path=base_path,
+    filename_pattern=filename_pattern,
+    remove_zeros=True,
+    time_cut=time_cut,
+    calo_hit_time_def=calo_hit_time_def,
+    energy_thresholds=custom_thresholds,
+    nlayer_batch=1
+)
 
-# detectors_to_analyze = [
-#     ('ECalBarrel', ecal_barrel_xml),
-#     ('ECalEndcap', ecal_endcap_xml),
-#     ('HCalBarrel', hcal_barrel_xml),
-#     ('HCalEndcap', hcal_endcap_xml)
-# ]
 
-# analyze_detectors_and_plot(DETECTOR_CONFIGS=DETECTOR_CONFIGS,
-#                            detectors_to_analyze=detectors_to_analyze,
-#                            event_trees=events_trees,
-#                            main_xml=main_xml,
-#                            remove_zeros=1,
-#                            time_cut=time_cut,
-#                            calo_hit_time_def=calo_hit_time_def, # Use cumulative energy for time
-#                            energy_thresholds=custom_thresholds)
+detectors_to_analyze = [
+    ('ECalBarrel', ecal_barrel_xml),
+    ('ECalEndcap', ecal_endcap_xml),
+    ('HCalBarrel', hcal_barrel_xml),
+    ('HCalEndcap', hcal_endcap_xml)
+]
 
-# detectors_to_analyze = [
-#     ('MuonBarrel', muon_barrel_xml),
-#     ('MuonEndcap', muon_endcap_xml)
-# ]
+events_trees_by_train = analyze_detectors_and_plot_by_train(
+    DETECTOR_CONFIGS=DETECTOR_CONFIGS,
+    detectors_to_analyze=detectors_to_analyze,
+    all_seeds=seeds,
+    bunches_per_train=bunches_per_train,
+    main_xml=main_xml,
+    base_path=base_path,
+    filename_pattern=filename_pattern,
+    remove_zeros=True,
+    time_cut=time_cut,
+    calo_hit_time_def=calo_hit_time_def,
+    energy_thresholds=custom_thresholds,
+    nlayer_batch=10
+)
 
-# # analyze_detectors_and_plot(detectors_to_analyze=detectors_to_analyze)
-# analyze_detectors_and_plot(DETECTOR_CONFIGS=DETECTOR_CONFIGS,
-#                            detectors_to_analyze=detectors_to_analyze,
-#                            event_trees=events_trees,
-#                            main_xml=main_xml,
-#                            remove_zeros=1,
-#                            time_cut=time_cut,
-#                            calo_hit_time_def=calo_hit_time_def, # Use cumulative energy for time
-#                            energy_thresholds=custom_thresholds)
+detectors_to_analyze = [
+    ('MuonBarrel', muon_barrel_xml),
+    ('MuonEndcap', muon_endcap_xml)
+]
 
-# detectors_to_analyze = [
-#     ('BeamCal', beamcal_xml),
-#     ('LumiCal', lumical_xml)
-# ]
+events_trees_by_train = analyze_detectors_and_plot_by_train(
+    DETECTOR_CONFIGS=DETECTOR_CONFIGS,
+    detectors_to_analyze=detectors_to_analyze,
+    all_seeds=seeds,
+    bunches_per_train=bunches_per_train,
+    main_xml=main_xml,
+    base_path=base_path,
+    filename_pattern=filename_pattern,
+    remove_zeros=True,
+    time_cut=time_cut,
+    calo_hit_time_def=calo_hit_time_def,
+    energy_thresholds=custom_thresholds,
+    nlayer_batch=10
+)
 
-# # analyze_detectors_and_plot(detectors_to_analyze=detectors_to_analyze)
-# analyze_detectors_and_plot(DETECTOR_CONFIGS=DETECTOR_CONFIGS,
-#                            detectors_to_analyze=detectors_to_analyze,
-#                            event_trees=events_trees,
-#                            main_xml=main_xml,
-#                            remove_zeros=1,
-#                            time_cut=time_cut,
-#                            calo_hit_time_def=calo_hit_time_def, # Use cumulative energy for time
-#                            energy_thresholds=custom_thresholds)
+detectors_to_analyze = [
+    ('BeamCal', beamcal_xml),
+    ('LumiCal', lumical_xml)
+]
+
+events_trees_by_train = analyze_detectors_and_plot_by_train(
+    DETECTOR_CONFIGS=DETECTOR_CONFIGS,
+    detectors_to_analyze=detectors_to_analyze,
+    all_seeds=seeds,
+    bunches_per_train=bunches_per_train,
+    main_xml=main_xml,
+    base_path=base_path,
+    filename_pattern=filename_pattern,
+    remove_zeros=True,
+    time_cut=time_cut,
+    calo_hit_time_def=calo_hit_time_def,
+    energy_thresholds=custom_thresholds,
+    nlayer_batch=10
+)
+
+

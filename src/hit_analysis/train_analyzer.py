@@ -122,7 +122,7 @@ def analyze_detectors_and_plot_by_train(DETECTOR_CONFIGS=None, detectors_to_anal
                                      all_seeds=None, bunches_per_train=None, 
                                      main_xml=None, base_path=None, filename_pattern=None,
                                      remove_zeros=True, time_cut=-1, 
-                                     calo_hit_time_def=0, energy_thresholds=None):
+                                     calo_hit_time_def=0, energy_thresholds=None,nlayer_batch=1):
     """
     Analyze detectors with train-based averaging.
     
@@ -212,7 +212,7 @@ def analyze_detectors_and_plot_by_train(DETECTOR_CONFIGS=None, detectors_to_anal
             
             # Create visualizations with train-averaged data
             plot_train_averaged_occupancy_analysis(stats, geometry_info, 
-                                                output_prefix=f"{detector_name}_train{bunches_per_train}")
+                                                output_prefix=f"{detector_name}_train{bunches_per_train}",nlayer_batch=nlayer_batch)
             
             plot_train_averaged_timing_analysis(stats, geometry_info, 
                                              output_prefix=f"{detector_name}_train{bunches_per_train}")
@@ -235,7 +235,7 @@ def analyze_detectors_and_plot_by_train(DETECTOR_CONFIGS=None, detectors_to_anal
     
     return events_trees_by_train
 
-def plot_train_averaged_occupancy_analysis(stats, geometry_info, output_prefix=None):
+def plot_train_averaged_occupancy_analysis(stats, geometry_info, output_prefix=None, nlayer_batch=1):
     """
     Create detailed visualizations of the train-averaged occupancy analysis
     
@@ -279,22 +279,79 @@ def plot_train_averaged_occupancy_analysis(stats, geometry_info, output_prefix=N
     thresholds = sorted(stats['threshold_stats'].keys())
 
 
-    for layer in sorted(geometry_info['layers'].keys()):
-        #occupancies = [stats['threshold_stats'][t]['per_layer'].get(layer, {'occupancy': 0})['occupancy'] * 100 
-        #              for t in thresholds]
-        occupancies = [stats['threshold_stats'][t]['per_layer'].get(layer, {'occupancy': 0})['occupancy'] 
-                      for t in thresholds]
-        occupancies_errors = [stats['threshold_stats'][t]['per_layer'].get(layer, {'occupancy_error': 0})['occupancy_error'] 
-                      for t in thresholds]
-        #ax1.plot(thresholds, occupancies, 'o-', label=f'Layer {layer}')
-        print("!!!Jim: layer = ",layer, "occupancies = ",occupancies, "occupancies_errors = ",occupancies_errors)
-        ax1.errorbar(thresholds, occupancies, yerr=occupancies_errors, fmt='o-', label=f'Layer {layer}')
-
-    ax1.set_xlabel('Buffer depth',fontsize=18)
-    #ax1.set_ylabel('Occupancy (%)')
-    ax1.set_ylabel('Occupancy',fontsize=18)
+    # Get all available layers and sort them
+    all_layers = sorted(geometry_info['layers'].keys())
+    
+    # Create layer batches
+    layer_batches = []
+    for i in range(0, len(all_layers), nlayer_batch):
+        batch = all_layers[i:i+nlayer_batch]
+        if batch:  # Skip empty batches
+            layer_batches.append(batch)
+    
+    # Plot averaged occupancy for each batch
+    for i, batch in enumerate(layer_batches):
+        # Label for the batch
+        if len(batch) == 1:
+            batch_label = f'Layer {batch[0]}'
+        else:
+            batch_label = f'Layers {batch[0]}-{batch[-1]}'
+        
+        # Calculate average occupancy and errors for each threshold
+        avg_occupancies = []
+        occupancy_errors = []
+        
+        for t in thresholds:
+            # Collect occupancies and errors for all layers in batch
+            batch_occupancies = []
+            batch_errors = []
+            
+            for layer in batch:
+                layer_data = stats['threshold_stats'][t]['per_layer'].get(layer, {})
+                if 'occupancy' in layer_data:
+                    batch_occupancies.append(layer_data['occupancy'])
+                    
+                    # Use stored error if available, otherwise calculate simple error
+                    if 'occupancy_error' in layer_data:
+                        batch_errors.append(layer_data['occupancy_error'])
+                    elif 'occupancy_std_dev' in layer_data:
+                        batch_errors.append(layer_data['occupancy_std_dev'] / np.sqrt(num_trains))
+                    else:
+                        batch_errors.append(0)
+            
+            # Calculate batch average and error
+            if batch_occupancies:
+                # Average occupancy across layers in batch
+                avg_occ = sum(batch_occupancies) / len(batch_occupancies)
+                avg_occupancies.append(avg_occ)
+                
+                # Combine errors (root sum of squares for independent measurements)
+                if batch_errors:
+                    # Root sum of squares, divided by number of layers to maintain average scale
+                    combined_error = np.sqrt(sum(e**2 for e in batch_errors)) / len(batch_errors)
+                    occupancy_errors.append(combined_error)
+                else:
+                    occupancy_errors.append(0)
+            else:
+                avg_occupancies.append(0)
+                occupancy_errors.append(0)
+        
+        # Plot with error bars
+        ax1.errorbar(
+            thresholds, 
+            avg_occupancies, 
+            yerr=occupancy_errors,
+            fmt='o-', 
+            label=batch_label,
+            capsize=3
+        )
+    
+    ax1.set_xlabel('Buffer depth', fontsize=18)
+    ax1.set_ylabel('Occupancy', fontsize=18)
     ax1.set_yscale('log')
-    #ax1.set_title('Occupancy vs Hit Threshold by Layer',fontsize=20)
+    # Set x-axis to display only integer values
+    ax1.set_xticks(thresholds)
+    ax1.set_xticklabels([str(int(t)) for t in thresholds])
     ax1.grid(True)
     ax1.legend()
     
@@ -664,3 +721,4 @@ def plot_train_averaged_timing_analysis(stats, geometry_info, output_prefix=None
         plt.savefig(f'{output_prefix}_timing_density.pdf')
     
     plt.show()
+
