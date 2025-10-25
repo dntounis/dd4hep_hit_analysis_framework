@@ -1,3 +1,5 @@
+import re
+
 import numpy as np
 import matplotlib.pyplot as plt
 import awkward as ak
@@ -10,6 +12,41 @@ from src.geometry_parsing.geometry_info import get_geometry_info
 
 from src.hit_analysis.occupancy import analyze_detector_hits
 from src.geometry_parsing.k4geo_parsers import parse_detector_constants 
+from src.utils.histogram_utils import (
+    compute_rphi_area_map,
+    compute_rz_area_map,
+    extract_layer_geometry,
+)
+
+
+def _configure_log_yticks(ax):
+    """Ensure consistent log-scale major/minor ticks across plots."""
+    try:
+        from matplotlib.ticker import LogLocator, NullFormatter, LogFormatterSciNotation
+
+        major_locator = LogLocator(base=10.0, numticks=1000)
+        minor_locator = LogLocator(base=10.0, subs=np.arange(2, 10) * 0.1, numticks=1000)
+
+        ax.yaxis.set_major_locator(major_locator)
+        ax.yaxis.set_minor_locator(minor_locator)
+        ax.yaxis.set_minor_formatter(NullFormatter())
+        ax.yaxis.set_major_formatter(LogFormatterSciNotation())
+        ax.tick_params(axis='y', which='minor', length=4, width=0.8)
+        ax.grid(True, which='both', axis='y', alpha=0.3)
+    except Exception:
+        pass
+
+
+_DISPLAY_NAME_OVERRIDES = {
+    'SiTrackerForward': 'SiVertexForward',
+}
+
+
+def _get_detector_display_name(detector_name: str) -> str:
+    """
+    Return the user-facing label for a detector, applying overrides when needed.
+    """
+    return _DISPLAY_NAME_OVERRIDES.get(detector_name, detector_name)
 
 # import matplotlib as mpl
 # mpl.rc('text', usetex=True)
@@ -55,7 +92,8 @@ def plot_hit_distribution(stats, output_file=None):
 
 
 
-def plot_occupancy_analysis(stats, geometry_info, output_prefix=None, time_cut=-1, nlayer_batch=1):
+def plot_occupancy_analysis(stats, geometry_info, output_prefix=None, time_cut=-1, nlayer_batch=1,
+                            occupancy_scale=1.0):
     """
     Create detailed visualizations of the occupancy analysis
     
@@ -88,7 +126,8 @@ def plot_occupancy_analysis(stats, geometry_info, output_prefix=None, time_cut=-
     time_cut = stats['time_cut']
     print(f"Time cut: {time_cut}")
 
-    title_text = f'SiD_o2_v04 - {geometry_info["detector_name"]}'
+    detector_label = _get_detector_display_name(geometry_info["detector_name"])
+    title_text = f'SiD_o2_v04 - {detector_label}'
     if time_cut > 0:
         title_text += f' (t<{time_cut} ns)'
 
@@ -104,6 +143,8 @@ def plot_occupancy_analysis(stats, geometry_info, output_prefix=None, time_cut=-
     
     # 1. Occupancy vs threshold for each layer
     ax1 = fig.add_subplot(gs[0, 0])
+    scale = occupancy_scale if occupancy_scale is not None else 1.0
+    series_data = []
     thresholds = sorted(stats['threshold_stats'].keys())
 
     # Get all available layers and sort them
@@ -180,21 +221,25 @@ def plot_occupancy_analysis(stats, geometry_info, output_prefix=None, time_cut=-
             occupancy_errors.append(error)
         
         # Plot with error bars
+        scaled_avg = [val * scale for val in avg_occupancies]
+        scaled_err = [err * scale for err in occupancy_errors]
+
         ax1.errorbar(
-            thresholds, 
-            avg_occupancies, 
-            yerr=occupancy_errors,
-            fmt='o-', 
+            thresholds,
+            scaled_avg,
+            yerr=scaled_err,
+            fmt='o-',
             label=batch_label,
             capsize=3
         )
+        series_data.append((batch_label, scaled_avg, scaled_err))
     
 
  
     ax1.set_xlabel('Buffer depth',fontsize=18)
-    #ax1.set_ylabel('Occupancy (%)')
-    ax1.set_ylabel('Occupancy',fontsize=18)
+    ax1.set_ylabel('Layer occupancy',fontsize=18)
     ax1.set_yscale('log')
+    _configure_log_yticks(ax1)
     #ax1.set_title('Occupancy vs Hit Threshold by Layer',fontsize=20)
     ax1.set_xticks(thresholds)  # Set ticks to the actual threshold values
     ax1.set_xticklabels([str(int(t)) for t in thresholds])  # Format as integers
@@ -210,38 +255,22 @@ def plot_occupancy_analysis(stats, geometry_info, output_prefix=None, time_cut=-
     # Create the edges first
     hist, xedges, yedges = np.histogram2d(phi_vals, r_vals, bins=[51, 21])
 
-
-    # Calculate bin sizes
-    dphi = xedges[1] - xedges[0]
-    dr = yedges[1] - yedges[0]
-
-    z_length = 0
-    for layer_id, layer_info in geometry_info['layers'].items():
-        if 'z_length' in layer_info:
-            z_length = max(z_length, layer_info['z_length'])
-    
-
-    r_centers = 0.5 * (yedges[1:] + yedges[:-1])
-
-    bin_areas = np.zeros((len(xedges)-1, len(yedges)-1))
-    for j in range(len(r_centers)):
-        bin_areas[:, j] = r_centers[j] * z_length * dphi
-
-    # Calculate cylindrical surface area: r × dphi × Z_length
-    #bin_areas = r_centers * dphi * z_length
-
-    hist_normalized = hist / (bin_areas + 1e-10)
-    print("dphi = ",dphi,",  z_length = ",z_length,"mm ,  bin_area[0,0] = ",bin_areas[0,0],"mm²")
-
-    pcm = ax2.pcolormesh(xedges[:-1], yedges[:-1], hist_normalized.T, 
-                         shading='auto',cmap='viridis',
-                         vmin=0,
+    layer_metadata = extract_layer_geometry(geometry_info)
+    area_map = compute_rphi_area_map(layer_metadata, xedges, yedges)
+    with np.errstate(invalid='ignore', divide='ignore'):
+        hist_normalized = np.divide(hist, area_map, where=area_map > 0)
+    masked = np.ma.masked_where(hist_normalized <= 0, hist_normalized)
+    cmap = plt.cm.get_cmap('viridis').copy()
+    cmap.set_bad(color='white')
+    pcm = ax2.pcolormesh(xedges[:-1], yedges[:-1], masked.T,
+                         shading='auto', cmap=cmap,
                          edgecolors='none')
-    ax2.set_facecolor('#3F007D')
+    ax2.set_facecolor('white')
     ax2.set_ylabel('R [mm]',fontsize=18)
     ax2.set_xlabel('Phi [rad]',fontsize=18)
     #ax2.set_title('Hit Distribution (R-Phi)',fontsize=20)
-    plt.colorbar(pcm, ax=ax2, label='Hits/mm²')
+    if pcm is not None:
+        plt.colorbar(pcm, ax=ax2, label='Hits/mm²')
 
     # 3. R-Z hit distribution
     ax3 = fig.add_subplot(gs[1, :])
@@ -249,41 +278,57 @@ def plot_occupancy_analysis(stats, geometry_info, output_prefix=None, time_cut=-
     z_vals = ak.to_numpy(stats['positions']['z'])
     r_vals = ak.to_numpy(stats['positions']['r'])
     hist, xedges, yedges = np.histogram2d(z_vals, r_vals, bins=[100, 30])
-    
-    # Calculate bin sizes for normalization
-    # Get the center of each radial bin
-    r_centers = 0.5 * (yedges[1:] + yedges[:-1])
-    dz = xedges[1] - xedges[0]
-
-    cylindrical_areas = np.outer(np.ones(len(xedges)-1), 2*np.pi*r_centers*dz)  # Area in mm²
-
-    dr = yedges[1] - yedges[0]
-
-    bin_areas = np.zeros((len(xedges)-1, len(yedges)-1))
-    for i in range(len(xedges)-1):
-        for j in range(len(yedges)-1):
-            bin_areas[i, j] = dz * dr
-  
-    #hist_normalized = hist / (bin_areas + 1e-10)
-    hist_normalized = hist / cylindrical_areas
-
-    print("zmin = ",np.min(z_vals), " mm, zmax = ", np.max(z_vals),"mm , dz,", dz, " mm, rmin = ", np.min(r_vals), " mm, rmax = ", np.max(r_vals), " mm, dr = ",  dr, " mm, bin area = ", bin_areas[0,0], " mm²")
-
-
-    pcm = ax3.pcolormesh(xedges[:-1], yedges[:-1], hist_normalized.T, shading='auto')
+    area_map_rz = compute_rz_area_map(layer_metadata, xedges, yedges)
+    with np.errstate(invalid='ignore', divide='ignore'):
+        hist_normalized = np.divide(hist, area_map_rz, where=area_map_rz > 0)
+    masked_rz = np.ma.masked_where(hist_normalized <= 0, hist_normalized)
+    cmap_rz = plt.cm.get_cmap('viridis').copy()
+    cmap_rz.set_bad(color='white')
+    pcm = ax3.pcolormesh(xedges[:-1], yedges[:-1], masked_rz.T, shading='auto', cmap=cmap_rz)
     ax3.set_xlabel('Z [mm]',fontsize=18)
     ax3.set_ylabel('R [mm]',fontsize=18)
     #ax3.set_title('Hit Distribution (R-Z)',fontsize=20)
-    plt.colorbar(pcm, ax=ax3, label='Hits/mm²')
+    if pcm is not None:
+        plt.colorbar(pcm, ax=ax3, label='Hits/mm²')
     
 
 
-    plt.tight_layout()
-    
+    fig.tight_layout()
+
+    # Create occupancy-only figure
+    fig_occ, ax_occ = plt.subplots(figsize=(7, 5))
+    # Remove any substring like "(133 bunches)" while keeping other content
+    compact_title = re.sub(r'\(\d+\s+bunches(?:/train)?\)', '', title_text)
+    compact_title = re.sub(r'\s{2,}', ' ', compact_title).strip()
+    fig_occ.suptitle(compact_title, fontsize=24)
+    for label, vals, errs in series_data:
+        ax_occ.errorbar(
+            thresholds,
+            vals,
+            yerr=errs,
+            fmt='o-',
+            label=label,
+            capsize=3
+        )
+    ax_occ.set_xlabel('Buffer depth', fontsize=18)
+    ax_occ.set_ylabel('Layer occupancy', fontsize=18)
+    ax_occ.set_yscale('log')
+    _configure_log_yticks(ax_occ)
+    ax_occ.set_xticks(thresholds)
+    ax_occ.set_xticklabels([str(int(t)) for t in thresholds])
+    ax_occ.grid(True)
+    ax_occ.legend()
+    fig_occ.tight_layout(rect=(0, 0, 1, 0.92))
+
     if output_prefix:
-        plt.savefig(f'{output_prefix}_occupancy_analysis.png')
-        plt.savefig(f'{output_prefix}_occupancy_analysis.pdf')
+        fig.savefig(f'{output_prefix}_occupancy_analysis.png')
+        fig.savefig(f'{output_prefix}_occupancy_analysis.pdf')
+        fig_occ.savefig(f'{output_prefix}_occupancy_vs_buffer_only.png')
+        fig_occ.savefig(f'{output_prefix}_occupancy_vs_buffer_only.pdf')
+    
     plt.show()
+    plt.close(fig)
+    plt.close(fig_occ)
 
 
 def plot_timing_analysis(stats, geometry_info, output_prefix=None):
@@ -304,7 +349,8 @@ def plot_timing_analysis(stats, geometry_info, output_prefix=None):
     time_cut = stats['time_cut']
     print(f"Time cut: {time_cut}")
 
-    title_text = f'Timing Analysis for {geometry_info["detector_name"]}'
+    detector_label = _get_detector_display_name(geometry_info["detector_name"])
+    title_text = f'Timing Analysis for {detector_label}'
     if time_cut > 0:
         title_text += f' (t<{time_cut} ns)'
 

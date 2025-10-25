@@ -5,8 +5,30 @@ import awkward as ak
 import matplotlib.pyplot as plt
 import mplhep as hep
 import traceback
+import re
 from collections import Counter
 from matplotlib.colors import LogNorm
+from typing import List
+
+# Import parallel I/O utilities
+from src.utils.parallel_io import open_files_parallel
+from src.utils.parallel_config import get_optimal_worker_count
+
+# Import parallel train processing utilities
+from src.utils.parallel_train_processing import process_trains_parallel
+from src.utils.histogram_utils import (
+    compute_rphi_area_map,
+    compute_rz_area_map,
+    extract_layer_geometry,
+)
+from src.hit_analysis.plotting import _configure_log_yticks, _get_detector_display_name
+
+
+def _sanitize_for_filename(value: str) -> str:
+    """Convert arbitrary labels into filesystem-friendly tokens."""
+    sanitized = re.sub(r'[^0-9A-Za-z\-]+', '_', value.strip())
+    sanitized = re.sub(r'_+', '_', sanitized).strip('_')
+    return sanitized
 
 def split_seeds_into_trains(seeds, bunches_per_train):
     """
@@ -47,7 +69,15 @@ def average_train_results(train_results):
     if not train_results:
         return None
     
-    # Start with a copy of the first train's results structure
+    # If workers returned bundles (ipc_only/hpp_only/combined), unwrap to average each mode
+    if 'ipc_only' in train_results[0] or 'combined' in train_results[0]:
+        return {
+            'ipc_only': average_train_results([t['ipc_only'] for t in train_results if t.get('ipc_only')]),
+            'hpp_only': average_train_results([t['hpp_only'] for t in train_results if t.get('hpp_only')]),
+            'combined': average_train_results([t['combined'] for t in train_results if t.get('combined')])
+        }
+
+    # Start with a copy of the first train's results structure (plain stats)
     averaged = train_results[0].copy()
     
     # Get common thresholds
@@ -122,7 +152,14 @@ def analyze_detectors_and_plot_by_train(DETECTOR_CONFIGS=None, detectors_to_anal
                                      all_seeds=None, bunches_per_train=None, 
                                      main_xml=None, base_path=None, filename_pattern=None,
                                      remove_zeros=True, time_cut=-1, 
-                                     calo_hit_time_def=0, energy_thresholds=None,nlayer_batch=1):
+                                     calo_hit_time_def=0, energy_thresholds=None,nlayer_batch=1,
+                                     hpp_file=None, hpp_mu=None,
+                                     scenario_label=None, detector_version=None,
+                                     use_vectorized_processing=True,
+                                     occupancy_ylim_map=None,
+                                     occupancy_scaling_map=None,
+                                     train_batch_size=None,
+                                     max_train_workers=None):
     """
     Analyze detectors with train-based averaging.
     
@@ -150,26 +187,39 @@ def analyze_detectors_and_plot_by_train(DETECTOR_CONFIGS=None, detectors_to_anal
         Time definition for calorimeter hits
     energy_thresholds : dict, optional
         Dictionary of energy thresholds
+    use_vectorized_processing : bool
+        If True, enable vectorized hit processing; otherwise use traditional path
+    occupancy_ylim_map : dict, optional
+        Optional mapping detector_name -> (ymin, ymax) for occupancy axis control
+    occupancy_scaling_map : dict, optional
+        Optional mapping detector_name -> multiplicative factor applied to occupancies
+    train_batch_size : int, optional
+        Number of trains to process per parallel batch (limits open files)
+    max_train_workers : int, optional
+        Override the worker count passed to process_trains_parallel
     """
     from src.geometry_parsing.k4geo_parsers import parse_detector_constants
     from src.geometry_parsing.geometry_info import get_geometry_info
     from src.hit_analysis.occupancy import analyze_detector_hits
-    
+    from src.hit_analysis.occupancy import summarize_stats_over_detector
+        
     # Split seeds into trains
     trains = split_seeds_into_trains(all_seeds, bunches_per_train)
     print(f"Split {len(all_seeds)} seeds into {len(trains)} trains of {bunches_per_train} bunches each")
     
-    # Create event trees by train
-    events_trees_by_train = []
-    for train_idx, train_seeds in enumerate(trains):
-        print(f"Loading train {train_idx+1}/{len(trains)}...")
-        train_trees = [uproot.open(base_path + filename_pattern.format(seed) + ':events') 
-                     for seed in train_seeds]
-        events_trees_by_train.append(train_trees)
+    # Note: File opening is now handled within parallel train processing
+    # No need to pre-load all files into memory
     
+    # Prepare summary accumulation
+    summary_rows = []
+
     # Analyze each detector
     for detector_name, xml_file in detectors_to_analyze:
         print(f"\nAnalyzing {detector_name} with train averaging...")
+        scale_factor = 1.0
+        if occupancy_scaling_map:
+            scale_factor = occupancy_scaling_map.get(detector_name, 1.0)
+
         try:
             detector_config = DETECTOR_CONFIGS[detector_name]
             constants = parse_detector_constants(main_xml, detector_name)
@@ -184,38 +234,124 @@ def analyze_detectors_and_plot_by_train(DETECTOR_CONFIGS=None, detectors_to_anal
                     if key not in ['cells_per_module', 'module_type']:
                         print(f"  {key}: {value}")
             
-            # Define thresholds to analyze
-            hit_thresholds = [1, 2, 3, 4]
+            # Define buffer depths to analyze (counts-per-cell thresholds)
+            #buffer_depths = [1, 2, 3, 4,5,6,7,8,9,10,11]
+            buffer_depths = [1, 2, 3, 4,5,6]
             
-            # Analyze each train separately
-            train_results = []
-            for train_idx, train_trees in enumerate(events_trees_by_train):
-                print(f"Processing train {train_idx+1}/{len(events_trees_by_train)}...")
-                
-                # Analyze this train
-                train_stats = analyze_detector_hits(
-                    train_trees, detector_name, detector_config, 
-                    hit_thresholds, xml_file, constants, main_xml, 
-                    remove_zeros, time_cut, calo_hit_time_def, energy_thresholds
+            # Use parallel train processing instead of sequential
+            results_accum: List = []
+            batch_size = train_batch_size or len(trains)
+            batch_size = max(1, batch_size)
+            total_batches = (len(trains) + batch_size - 1) // batch_size
+
+            for batch_index, batch_start in enumerate(range(0, len(trains), batch_size), start=1):
+                batch_trains = trains[batch_start:batch_start + batch_size]
+                print(f"Processing {len(batch_trains)} trains (batch {batch_index}/{total_batches}) in parallel for {detector_name}...")
+
+                batch_max_workers = max_train_workers if max_train_workers is not None else min(len(batch_trains), 4)
+                batch_max_workers = max(1, min(batch_max_workers, len(batch_trains)))
+
+                batch_results = process_trains_parallel(
+                    batch_trains, detector_name, detector_config, buffer_depths,
+                    xml_file, constants, main_xml, base_path, filename_pattern,
+                    remove_zeros, time_cut, calo_hit_time_def, energy_thresholds,
+                    hpp_file=hpp_file, hpp_mu=hpp_mu,
+                    use_vectorized=use_vectorized_processing,
+                    max_workers=batch_max_workers
                 )
-                
-                train_results.append(train_stats)
+                results_accum.extend(batch_results)
+
+            train_results = results_accum
             
-            # Average results across all trains
-            stats = average_train_results(train_results)
+            if not train_results:
+                print(f"Warning: No successful train results for {detector_name}")
+                continue
             
-            # Add train info to stats for plotting
-            stats['train_info'] = {
-                'bunches_per_train': bunches_per_train,
-                'num_trains': len(trains)
-            }
-            
-            # Create visualizations with train-averaged data
-            plot_train_averaged_occupancy_analysis(stats, geometry_info, 
-                                                output_prefix=f"{detector_name}_train{bunches_per_train}",nlayer_batch=nlayer_batch)
-            
-            plot_train_averaged_timing_analysis(stats, geometry_info, 
-                                             output_prefix=f"{detector_name}_train{bunches_per_train}")
+            # Average results across all trains (may be a dict of modes)
+            averaged = average_train_results(train_results)
+
+            def _attach_train_info(stats_obj):
+                if stats_obj is None:
+                    return None
+                stats_obj['train_info'] = {
+                    'bunches_per_train': bunches_per_train,
+                    'num_trains': len(trains)
+                }
+                return stats_obj
+
+            if isinstance(averaged, dict) and 'combined' in averaged:
+                # Process three modes: IPC-only, HPP-only, Combined
+                modes = [('IPC', averaged.get('ipc_only')), ('HPP', averaged.get('hpp_only')), ('SUM', averaged.get('combined'))]
+                for mode_label, stats in modes:
+                    stats = _attach_train_info(stats)
+                    if stats is None:
+                        continue
+                    prefix = f"{detector_name}_train{bunches_per_train}_{mode_label}"
+                    background_label = ('IPC+HPP' if mode_label == 'SUM' else mode_label)
+                    ylim = None
+                    if occupancy_ylim_map:
+                        ylim = occupancy_ylim_map.get(detector_name)
+                    plot_train_averaged_occupancy_analysis(
+                        stats, geometry_info, output_prefix=prefix, nlayer_batch=nlayer_batch,
+                        occupancy_ylim=ylim,
+                        scenario_label=scenario_label, detector_version=detector_version, background_label=background_label,
+                        occupancy_scale=scale_factor
+                    )
+                    plot_train_averaged_timing_analysis(
+                        stats, geometry_info, output_prefix=prefix,
+                        scenario_label=scenario_label, detector_version=detector_version, background_label=background_label
+                    )
+
+                    # Add summary row for this mode
+                    try:
+                        summary = summarize_stats_over_detector(stats, geometry_info, threshold=1)
+                        summary_rows.append({
+                            'detector': detector_name,
+                            'mode': mode_label,
+                            'total_hits': summary['total_hits'],
+                            'total_cells': summary['total_cells'],
+                            'mean_occupancy': summary['mean_occupancy'],
+                            'scaled_mean_occupancy': summary['mean_occupancy'] * scale_factor
+                        })
+                    except Exception:
+                        pass
+            else:
+                # Backward compatibility: single stats object
+                stats = _attach_train_info(averaged)
+                ylim = None
+                if occupancy_ylim_map:
+                    ylim = occupancy_ylim_map.get(detector_name)
+                plot_train_averaged_occupancy_analysis(
+                    stats, geometry_info, 
+                    output_prefix=f"{detector_name}_train{bunches_per_train}",
+                    nlayer_batch=nlayer_batch,
+                    occupancy_ylim=ylim,
+                    scenario_label=scenario_label,
+                    detector_version=detector_version,
+                    background_label='IPC',
+                    occupancy_scale=scale_factor
+                )
+                plot_train_averaged_timing_analysis(
+                    stats, geometry_info, 
+                    output_prefix=f"{detector_name}_train{bunches_per_train}",
+                    scenario_label=scenario_label,
+                    detector_version=detector_version,
+                    background_label='IPC'
+                )
+
+                # Add summary row for single-mode case
+                try:
+                    summary = summarize_stats_over_detector(stats, geometry_info, threshold=1)
+                    summary_rows.append({
+                        'detector': detector_name,
+                        'mode': 'IPC',
+                        'total_hits': summary['total_hits'],
+                        'total_cells': summary['total_cells'],
+                        'mean_occupancy': summary['mean_occupancy'],
+                        'scaled_mean_occupancy': summary['mean_occupancy'] * scale_factor
+                    })
+                except Exception:
+                    pass
             
             # Print detailed statistics for thresholds
             for threshold in range(1, 5):  # Keep output manageable
@@ -233,9 +369,38 @@ def analyze_detectors_and_plot_by_train(DETECTOR_CONFIGS=None, detectors_to_anal
             print(f"Error processing {detector_name}: {str(e)}")
             traceback.print_exc()
     
-    return events_trees_by_train
+    # Print terminal summary table
+    if summary_rows:
+        try:
+            header = (
+                f"{'Detector':<18} {'Mode':<6} {'Total Hits/train':>18} "
+                f"{'Total Cells':>14} {'Mean Occ.':>12} "
+                f"{'Mean Occ. (w/ safety factor,cluster size)':>41}"
+            )
+            print("\nSummary per subdetector (per train):")
+            print(header)
+            print('-' * len(header))
+            for row in summary_rows:
+                det = row['detector']
+                mode = row['mode']
+                th = row['total_hits']
+                tc = row['total_cells']
+                mo = row['mean_occupancy']
+                smo = row.get('scaled_mean_occupancy', mo)
+                print(f"{det:<18} {mode:<6} {th:18.3f} {tc:14d} {mo:12.3e} {smo:41.3e}")
+        except Exception:
+            pass
 
-def plot_train_averaged_occupancy_analysis(stats, geometry_info, output_prefix=None, nlayer_batch=1):
+    # Return summary of processing results
+    return {
+        'trains_processed': len(trains),
+        'bunches_per_train': bunches_per_train,
+        'total_seeds': len(all_seeds)
+    }
+
+def plot_train_averaged_occupancy_analysis(stats, geometry_info, output_prefix=None, nlayer_batch=1,
+                                           scenario_label=None, detector_version=None, background_label='IPC',
+                                           occupancy_ylim=None, occupancy_scale=1.0):
     """
     Create detailed visualizations of the train-averaged occupancy analysis
     
@@ -261,21 +426,24 @@ def plot_train_averaged_occupancy_analysis(stats, geometry_info, output_prefix=N
     time_cut = stats['time_cut']
     print(f"Time cut: {time_cut}")
 
-    title_text = f'SiD_o2_v04 - {geometry_info["detector_name"]}'
-    if time_cut > 0:
-        title_text += f' (t<{time_cut} ns)'
-
-    # Add the C^3 info and use rich text formatting for "Preliminary"
-    #title_text += r'                   SiD_o2_v04@C$^{3}$-550 (266 bunches) - $\boldsymbol{\it{Preliminary}}$'
-    #title_text += r'                   C$^{3}$ 550 - s.u. (150 bunches) - $\boldsymbol{\it{Preliminary}}$'
-    title_text += r'                   C$^{3}$ 250 - s.u. (266 bunches) - $\boldsymbol{\it{Preliminary}}$'
-
-    fig.suptitle(title_text, fontsize=24)
+    # Left/right titles matching requested style
+    left_title = None
+    if scenario_label is not None:
+        left_title = f"{scenario_label} ({bunches_per_train} bunches/train)"
+    else:
+        left_title = f"({bunches_per_train} bunches/train)"
+    detector_label = _get_detector_display_name(geometry_info["detector_name"])
+    right_title = f"{detector_version or 'SiD_o2_v04'} - {detector_label} - {background_label}"
+    time_note = (f" (t<{time_cut} ns)" if time_cut > 0 else "")
+    fig.text(0.01, 0.98, left_title + time_note, ha='left', va='top', fontsize=16)
+    fig.text(0.99, 0.98, right_title, ha='right', va='top', fontsize=16)
 
     gs = plt.GridSpec(2, 2)
     
     # 1. Occupancy vs threshold for each layer
     ax1 = fig.add_subplot(gs[0, 0])
+    scale = occupancy_scale if occupancy_scale is not None else 1.0
+    series_data = []
     thresholds = sorted(stats['threshold_stats'].keys())
 
 
@@ -337,22 +505,32 @@ def plot_train_averaged_occupancy_analysis(stats, geometry_info, output_prefix=N
                 occupancy_errors.append(0)
         
         # Plot with error bars
+        scaled_avg = [val * scale for val in avg_occupancies]
+        scaled_err = [err * scale for err in occupancy_errors]
+
         ax1.errorbar(
             thresholds, 
-            avg_occupancies, 
-            yerr=occupancy_errors,
+            scaled_avg, 
+            yerr=scaled_err,
             fmt='o-', 
             label=batch_label,
             capsize=3
         )
+        series_data.append((batch_label, scaled_avg, scaled_err))
     
     ax1.set_xlabel('Buffer depth', fontsize=18)
-    ax1.set_ylabel('Occupancy', fontsize=18)
+    ax1.set_ylabel('Layer occupancy', fontsize=18)
     ax1.set_yscale('log')
+    _configure_log_yticks(ax1)
     # Set x-axis to display only integer values
     ax1.set_xticks(thresholds)
     ax1.set_xticklabels([str(int(t)) for t in thresholds])
     ax1.grid(True)
+    if occupancy_ylim is not None:
+        try:
+            ax1.set_ylim(occupancy_ylim)
+        except ValueError:
+            pass
     ax1.legend()
     
     # 2. R-Phi hit distribution
@@ -364,38 +542,30 @@ def plot_train_averaged_occupancy_analysis(stats, geometry_info, output_prefix=N
     # Create the edges first
     hist, xedges, yedges = np.histogram2d(phi_vals, r_vals, bins=[51, 21])
 
+    layer_metadata = extract_layer_geometry(geometry_info)
+    area_map = compute_rphi_area_map(layer_metadata, xedges, yedges)
+    with np.errstate(invalid='ignore', divide='ignore'):
+        hist_normalized = np.divide(hist, area_map, where=area_map > 0)
 
-    # Calculate bin sizes
-    dphi = xedges[1] - xedges[0]
-    dr = yedges[1] - yedges[0]
-
-    z_length = 0
-    for layer_id, layer_info in geometry_info['layers'].items():
-        if 'z_length' in layer_info:
-            z_length = max(z_length, layer_info['z_length'])
-    
-
-    r_centers = 0.5 * (yedges[1:] + yedges[:-1])
-
-    bin_areas = np.zeros((len(xedges)-1, len(yedges)-1))
-    for j in range(len(r_centers)):
-        bin_areas[:, j] = r_centers[j] * z_length * dphi
-
-    # Calculate cylindrical surface area: r × dphi × Z_length
-    #bin_areas = r_centers * dphi * z_length
-
-    hist_normalized = hist / (bin_areas + 1e-10)
-    print("dphi = ",dphi,",  z_length = ",z_length,"mm ,  bin_area[0,0] = ",bin_areas[0,0],"mm²")
-
-    pcm = ax2.pcolormesh(xedges[:-1], yedges[:-1], hist_normalized.T, 
-                         shading='auto',cmap='viridis',
-                         vmin=0,
-                         edgecolors='none')
-    ax2.set_facecolor('#3F007D')
+    # Mask zero or negative bins so they appear as white
+    masked = np.ma.masked_where(hist_normalized.T <= 0, hist_normalized.T)
+    cmap2 = plt.cm.get_cmap('viridis').copy()
+    cmap2.set_bad(color='white')
+    # Guard against all-masked (no data) to avoid colorbar LogNorm issues
+    if masked.mask.all() if hasattr(masked.mask, 'all') else False:
+        ax2.text(0.5, 0.5, 'No data', transform=ax2.transAxes, ha='center', va='center')
+        pcm = None
+    else:
+        pcm = ax2.pcolormesh(xedges[:-1], yedges[:-1], masked,
+                             shading='auto', cmap=cmap2,
+                             edgecolors='none')
+    # Set background to white so masked regions show white
+    ax2.set_facecolor('white')
     ax2.set_ylabel('R [mm]',fontsize=18)
     ax2.set_xlabel('Phi [rad]',fontsize=18)
     #ax2.set_title('Hit Distribution (R-Phi)',fontsize=20)
-    plt.colorbar(pcm, ax=ax2, label='Hits/mm²')
+    if pcm is not None:
+        plt.colorbar(pcm, ax=ax2, label='Hits/mm²')
 
     # 3. R-Z hit distribution
     ax3 = fig.add_subplot(gs[1, :])
@@ -404,31 +574,24 @@ def plot_train_averaged_occupancy_analysis(stats, geometry_info, output_prefix=N
     r_vals = ak.to_numpy(stats['positions']['r'])
     hist, xedges, yedges = np.histogram2d(z_vals, r_vals, bins=[100, 30])
     
-    # Calculate bin sizes for normalization
-    # Get the center of each radial bin
-    r_centers = 0.5 * (yedges[1:] + yedges[:-1])
-    dz = xedges[1] - xedges[0]
+    area_map_rz = compute_rz_area_map(layer_metadata, xedges, yedges)
+    with np.errstate(invalid='ignore', divide='ignore'):
+        hist_normalized = np.divide(hist, area_map_rz, where=area_map_rz > 0)
 
-    cylindrical_areas = np.outer(np.ones(len(xedges)-1), 2*np.pi*r_centers*dz)  # Area in mm²
-
-    dr = yedges[1] - yedges[0]
-
-    bin_areas = np.zeros((len(xedges)-1, len(yedges)-1))
-    for i in range(len(xedges)-1):
-        for j in range(len(yedges)-1):
-            bin_areas[i, j] = dz * dr
-  
-    #hist_normalized = hist / (bin_areas + 1e-10)
-    hist_normalized = hist / cylindrical_areas
-
-    print("zmin = ",np.min(z_vals), " mm, zmax = ", np.max(z_vals),"mm , dz,", dz, " mm, rmin = ", np.min(r_vals), " mm, rmax = ", np.max(r_vals), " mm, dr = ",  dr, " mm, bin area = ", bin_areas[0,0], " mm²")
-
-
-    pcm = ax3.pcolormesh(xedges[:-1], yedges[:-1], hist_normalized.T, shading='auto')
+    # Mask zero or negative bins to show white
+    masked_rz = np.ma.masked_where(hist_normalized.T <= 0, hist_normalized.T)
+    cmap3 = plt.cm.get_cmap('viridis').copy()
+    cmap3.set_bad(color='white')
+    if masked_rz.mask.all() if hasattr(masked_rz.mask, 'all') else False:
+        ax3.text(0.5, 0.5, 'No data', transform=ax3.transAxes, ha='center', va='center')
+        pcm = None
+    else:
+        pcm = ax3.pcolormesh(xedges[:-1], yedges[:-1], masked_rz, shading='auto', cmap=cmap3)
     ax3.set_xlabel('Z [mm]',fontsize=18)
     ax3.set_ylabel('R [mm]',fontsize=18)
     #ax3.set_title('Hit Distribution (R-Z)',fontsize=20)
-    plt.colorbar(pcm, ax=ax3, label='Hits/mm²')
+    if pcm is not None:
+        plt.colorbar(pcm, ax=ax3, label='Hits/mm²')
     
 
 
@@ -440,13 +603,53 @@ def plot_train_averaged_occupancy_analysis(stats, geometry_info, output_prefix=N
     # plt.figtext(0.5, 0.02, note_text, ha='center', fontsize=10, 
     #            bbox=dict(facecolor='white', alpha=0.8, boxstyle='round,pad=0.5'))
     
-    plt.tight_layout()  # Adjust for title and note
-    
+    fig.tight_layout()  # Adjust for title and note
+
+    # Create occupancy-only figure
+    fig_occ, ax_occ = plt.subplots(figsize=(7, 5))
+    # Replicate condensed headline without bunch-count parenthetical
+    compact_left = left_title
+    if bunches_per_train:
+        compact_left = compact_left.replace(f" ({bunches_per_train} bunches/train)", "")
+        compact_left = compact_left.replace(f"({bunches_per_train} bunches/train)", "")
+    compact_left = compact_left.strip()
+    fig_occ.text(0.01, 0.98, compact_left + time_note, ha='left', va='top', fontsize=16)
+    fig_occ.text(0.99, 0.98, right_title, ha='right', va='top', fontsize=16)
+
+    for label, vals, errs in series_data:
+        ax_occ.errorbar(
+            thresholds,
+            vals,
+            yerr=errs,
+            fmt='o-',
+            label=label,
+            capsize=3
+        )
+    ax_occ.set_xlabel('Buffer depth', fontsize=18)
+    ax_occ.set_ylabel('Layer occupancy', fontsize=18)
+    ax_occ.set_yscale('log')
+    _configure_log_yticks(ax_occ)
+    ax_occ.set_xticks(thresholds)
+    ax_occ.set_xticklabels([str(int(t)) for t in thresholds])
+    ax_occ.grid(True)
+    ax_occ.legend()
+    fig_occ.tight_layout(rect=(0, 0, 1, 0.95))
+
     if output_prefix:
-        plt.savefig(f'{output_prefix}_C3_250_occupancy.png', dpi=300)
-        plt.savefig(f'{output_prefix}_C3_250_occupancy.pdf')
+        if scenario_label:
+            scenario_token = _sanitize_for_filename(scenario_label)
+            base_path = f"{output_prefix}_{scenario_token}_occupancy"
+        else:
+            base_path = f"{output_prefix}_C3_250_occupancy"
+
+        fig.savefig(f'{base_path}.png', dpi=300)
+        fig.savefig(f'{base_path}.pdf')
+        fig_occ.savefig(f'{base_path}_vs_buffer_only.png', dpi=300)
+        fig_occ.savefig(f'{base_path}_vs_buffer_only.pdf')
     
     plt.show()
+    plt.close(fig)
+    plt.close(fig_occ)
 
 # def plot_train_averaged_timing_analysis(stats, geometry_info, output_prefix=None):
 #     """
@@ -573,7 +776,8 @@ def plot_train_averaged_occupancy_analysis(stats, geometry_info, output_prefix=N
 #     plt.show()
 
 
-def plot_train_averaged_timing_analysis(stats, geometry_info, output_prefix=None):
+def plot_train_averaged_timing_analysis(stats, geometry_info, output_prefix=None,
+                                        scenario_label=None, detector_version=None, background_label='IPC'):
     """
     Create timing analysis visualizations with hit density (hits/mm²) for train-averaged results
     
@@ -597,14 +801,17 @@ def plot_train_averaged_timing_analysis(stats, geometry_info, output_prefix=None
     # Retrieve assumed time cut for occupancy calculation
     time_cut = stats.get('time_cut', -1)
     
-    title = f'Timing Analysis for {geometry_info["detector_name"]}'
-    subtitle = f'Based on sampling from {num_trains} trains with {bunches_per_train} bunches per train'
-    
-    if time_cut > 0:
-        title += f' (t<{time_cut} ns)'
-    
-    fig.suptitle(title, fontsize=16)
-    plt.figtext(0.5, 0.92, subtitle, ha='center', fontsize=12)
+    # Top-left and top-right titles with scenario and background type
+    left_title = None
+    if scenario_label is not None:
+        left_title = f"{scenario_label} ({bunches_per_train} bunches/train)"
+    else:
+        left_title = f"({bunches_per_train} bunches/train)"
+    detector_label = _get_detector_display_name(geometry_info["detector_name"])
+    right_title = f"{detector_version or 'SiD_o2_v04'} - {detector_label} - {background_label}"
+    time_note = (f" (t<{time_cut} ns)" if time_cut > 0 else "")
+    fig.text(0.01, 0.98, left_title + time_note, ha='left', va='top', fontsize=16)
+    fig.text(0.99, 0.98, right_title, ha='right', va='top', fontsize=16)
     
     gs = plt.GridSpec(2, 2)
 
@@ -620,7 +827,10 @@ def plot_train_averaged_timing_analysis(stats, geometry_info, output_prefix=None
         z_vals = stats['positions']['z']
         phi_vals = stats['positions']['phi']
 
-    t_edges = np.linspace(0, min(100, max(time_vals)), 100)
+    if len(time_vals) == 0:
+        t_edges = np.linspace(0, 1, 100)
+    else:
+        t_edges = np.linspace(0, min(100, max(time_vals)), 100)
     t_bin_width = np.diff(t_edges)[0]  # Time bin width in ns
 
     # 1. Timing distribution
@@ -637,50 +847,80 @@ def plot_train_averaged_timing_analysis(stats, geometry_info, output_prefix=None
 
     # 2. Timing vs R (with density)
     ax2 = fig.add_subplot(gs[1, 0])
-    r_edges = np.linspace(0, max(r_vals), 21)
-    r_bin_width = np.diff(r_edges)[0]  # R bin width in mm
+    if len(r_vals) == 0:
+        r_edges = np.linspace(0, 1, 21)
+    else:
+        r_edges = np.linspace(0, max(r_vals), 21)
+    r_bin_width = max(np.diff(r_edges)[0], 1e-9)  # R bin width in mm
 
-    hist, xedges, yedges = np.histogram2d(r_vals, time_vals,
-                            bins=[r_edges, t_edges]) 
+    if len(r_vals) == 0 or len(time_vals) == 0:
+        hist = np.zeros((len(r_edges)-1, len(t_edges)-1))
+        xedges, yedges = r_edges, t_edges
+    else:
+        hist, xedges, yedges = np.histogram2d(r_vals, time_vals,
+                                bins=[r_edges, t_edges]) 
     
     # Calculate bin area (mm × ns)
     bin_area = r_bin_width * t_bin_width
     density = hist.T / bin_area
 
-    pcm = ax2.pcolormesh(xedges[:-1], yedges[:-1], density, 
-                        shading='auto', 
-                        cmap='viridis',
-                        norm=LogNorm(vmin=0.001))
-    ax2.set_facecolor('#3F007D')
+    masked = np.ma.masked_where(density <= 0, density)
+    cmap2 = plt.cm.get_cmap('viridis').copy()
+    cmap2.set_bad(color='white')
+    if hasattr(masked, 'mask') and np.all(masked.mask):
+        ax2.text(0.5, 0.5, 'No data', transform=ax2.transAxes, ha='center', va='center')
+        pcm = None
+    else:
+        pcm = ax2.pcolormesh(xedges[:-1], yedges[:-1], masked, 
+                            shading='auto', 
+                            cmap=cmap2,
+                            norm=LogNorm(vmin=0.001))
+    ax2.set_facecolor('white')
     
     ax2.set_ylabel('Time [ns]')
     ax2.set_xlabel('R [mm]')
-    cbar = plt.colorbar(pcm, ax=ax2)
-    cbar.set_label('Hit Density (hits/mm·ns)')
+    if pcm is not None:
+        cbar = plt.colorbar(pcm, ax=ax2)
+        cbar.set_label('Hit Density (hits/mm·ns)')
     ax2.text(0.02, 0.02, f"Bin size: {r_bin_width:.1f} mm × {t_bin_width:.1f} ns", 
             transform=ax2.transAxes, bbox=dict(facecolor='white', alpha=0.7))
 
     # 3. Timing vs Z (with density)
     ax3 = fig.add_subplot(gs[1, 1])
-    z_edges = np.linspace(min(z_vals), max(z_vals), 21)
-    z_bin_width = np.diff(z_edges)[0]  # Z bin width in mm
+    if len(z_vals) == 0:
+        z_edges = np.linspace(0, 1, 21)
+    else:
+        z_edges = np.linspace(min(z_vals), max(z_vals), 21)
+    z_bin_width = max(np.diff(z_edges)[0], 1e-9)  # Z bin width in mm
 
-    hist, xedges, yedges = np.histogram2d(z_vals, time_vals, 
-                            bins=[z_edges, t_edges]) 
+    if len(z_vals) == 0 or len(time_vals) == 0:
+        hist = np.zeros((len(z_edges)-1, len(t_edges)-1))
+        xedges, yedges = z_edges, t_edges
+    else:
+        hist, xedges, yedges = np.histogram2d(z_vals, time_vals, 
+                                bins=[z_edges, t_edges]) 
     
     # Calculate bin area (mm × ns)
     bin_area = z_bin_width * t_bin_width
     density = hist.T / bin_area
 
-    pcm = ax3.pcolormesh(xedges[:-1], yedges[:-1], density, 
-                        shading='auto', 
-                        cmap='viridis',
-                        norm=LogNorm(vmin=0.001))
-    ax3.set_facecolor('#3F007D')
+    masked = np.ma.masked_where(density <= 0, density)
+    cmap3 = plt.cm.get_cmap('viridis').copy()
+    cmap3.set_bad(color='white')
+    if hasattr(masked, 'mask') and np.all(masked.mask):
+        ax3.text(0.5, 0.5, 'No data', transform=ax3.transAxes, ha='center', va='center')
+        pcm = None
+    else:
+        pcm = ax3.pcolormesh(xedges[:-1], yedges[:-1], masked, 
+                            shading='auto', 
+                            cmap=cmap3,
+                            norm=LogNorm(vmin=0.001))
+    ax3.set_facecolor('white')
     ax3.set_xlabel('Z [mm]')
     ax3.set_ylabel('Time [ns]')
-    cbar = plt.colorbar(pcm, ax=ax3)
-    cbar.set_label('Hit Density (hits/mm·ns)')
+    if pcm is not None:
+        cbar = plt.colorbar(pcm, ax=ax3)
+        cbar.set_label('Hit Density (hits/mm·ns)')
     ax3.text(0.02, 0.02, f"Bin size: {z_bin_width:.1f} mm × {t_bin_width:.1f} ns", 
             transform=ax3.transAxes, bbox=dict(facecolor='white', alpha=0.7))
 
@@ -689,22 +929,34 @@ def plot_train_averaged_timing_analysis(stats, geometry_info, output_prefix=None
     phi_edges = np.linspace(-np.pi, np.pi, 51)
     phi_bin_width = np.diff(phi_edges)[0]  # Phi bin width in radians
 
-    hist, xedges, yedges = np.histogram2d(phi_vals, time_vals, 
-                            bins=[phi_edges, t_edges]) 
+    if len(phi_vals) == 0 or len(time_vals) == 0:
+        hist = np.zeros((len(phi_edges)-1, len(t_edges)-1))
+        xedges, yedges = phi_edges, t_edges
+    else:
+        hist, xedges, yedges = np.histogram2d(phi_vals, time_vals, 
+                                bins=[phi_edges, t_edges]) 
     
     # Calculate bin area (rad × ns)
     bin_area = phi_bin_width * t_bin_width
     density = hist.T / bin_area
 
-    pcm = ax4.pcolormesh(xedges[:-1], yedges[:-1], density, 
-                        shading='auto', 
-                        cmap='viridis',
-                        norm=LogNorm(vmin=0.001))
-    ax4.set_facecolor('#3F007D')
+    masked = np.ma.masked_where(density <= 0, density)
+    cmap4 = plt.cm.get_cmap('viridis').copy()
+    cmap4.set_bad(color='white')
+    if hasattr(masked, 'mask') and np.all(masked.mask):
+        ax4.text(0.5, 0.5, 'No data', transform=ax4.transAxes, ha='center', va='center')
+        pcm = None
+    else:
+        pcm = ax4.pcolormesh(xedges[:-1], yedges[:-1], masked, 
+                            shading='auto', 
+                            cmap=cmap4,
+                            norm=LogNorm(vmin=0.001))
+    ax4.set_facecolor('white')
     ax4.set_xlabel('Phi [rad]')
     ax4.set_ylabel('Time [ns]')
-    cbar = plt.colorbar(pcm, ax=ax4)
-    cbar.set_label('Hit Density (hits/rad·ns)')
+    if pcm is not None:
+        cbar = plt.colorbar(pcm, ax=ax4)
+        cbar.set_label('Hit Density (hits/rad·ns)')
     ax4.text(0.02, 0.02, f"Bin size: {phi_bin_width:.2f} rad × {t_bin_width:.1f} ns", 
             transform=ax4.transAxes, bbox=dict(facecolor='white', alpha=0.7))
 
@@ -717,8 +969,13 @@ def plot_train_averaged_timing_analysis(stats, geometry_info, output_prefix=None
     plt.tight_layout(rect=[0, 0.05, 1, 0.9])  # Adjust for title and note
 
     if output_prefix:
-        plt.savefig(f'{output_prefix}_timing_density.png', dpi=300)
-        plt.savefig(f'{output_prefix}_timing_density.pdf')
+        if scenario_label:
+            scenario_token = _sanitize_for_filename(scenario_label)
+            base_path = f"{output_prefix}_{scenario_token}_timing_density"
+        else:
+            base_path = f"{output_prefix}_timing_density"
+
+        plt.savefig(f'{base_path}.png', dpi=300)
+        plt.savefig(f'{base_path}.pdf')
     
     plt.show()
-

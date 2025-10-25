@@ -736,42 +736,88 @@ def parse_detector_constants(main_xml_file, detector_name=None):
                 print(f"Warning: Could not evaluate constant {name}: {str(e)}")
                 print(f"  Current value string: {value_str}")
             return None
-    
+
     # Add final module count calculations for tracker barrel
     if detector_name == 'SiTrackerBarrel':
-        # Calculate inner, outer and intermediate layer module counts
         constants = {}
         for name in raw_constants:
             value = evaluate_constant(name)
             if value is not None:
                 constants[name] = value
-                
-        # Calculate nphi and nz for each layer
-        for prefix in ['inner', '2', '3', '4', 'outer']:
-            rc_name = f'SiTrackerBarrel_rc_{prefix}' if prefix not in ['inner', 'outer'] else f'SiTrackerBarrel_{prefix}_rc'
-            z0_name = f'SiTrackerBarrel_z0_{prefix}' if prefix not in ['inner', 'outer'] else f'SiTrackerBarrel_{prefix}_z0'
-            
-            if rc_name in constants and z0_name in constants:
-                rc = constants[rc_name]
-                z0 = constants[z0_name]
-                
-                # Calculate nphi and nz
-                if prefix in ['inner', 'outer']:
-                    nphi_name = f'SiTrackerBarrel_{prefix}_nphi'
-                    nz_name = f'SiTrackerBarrel_{prefix}_nz'
-                else:
-                    nphi_name = f'SiTrackerBarrel_nphi_{prefix}'
-                    nz_name = f'SiTrackerBarrel_nz_{prefix}'
-                
-                if 'SiTracker_circular_spacing' in constants and 'SiTracker_module_z_spacing' in constants:
-                    circular_spacing = constants['SiTracker_circular_spacing']
-                    z_spacing = constants['SiTracker_module_z_spacing']
-                    
-                    constants[nphi_name] = math.floor(rc / circular_spacing)
-                    constants[nz_name] = 1 + math.floor(z0 / z_spacing)
-        
+
+        inner_rc = constants.get('SiTrackerBarrel_inner_rc')
+        outer_rc = constants.get('SiTrackerBarrel_outer_rc')
+        if inner_rc is not None and outer_rc is not None:
+            r_spacing = constants.get('SiTrackerBarrel_r_spacing')
+            if r_spacing is None:
+                r_spacing = (outer_rc - inner_rc) / 4.0
+                constants['SiTrackerBarrel_r_spacing'] = r_spacing
+
+            rc_progression = {
+                '2': inner_rc + r_spacing,
+                '3': inner_rc + 2.0 * r_spacing,
+                '4': inner_rc + 3.0 * r_spacing,
+            }
+            for suffix, rc_val in rc_progression.items():
+                constants.setdefault(f'SiTrackerBarrel_rc_{suffix}', rc_val)
+
+            tan_theta = constants.get('SiTracker_tanTheta')
+            b_intercept = constants.get('SiTracker_bIntercept', 0.0)
+            if tan_theta:
+                for suffix, rc_val in rc_progression.items():
+                    z0_name = f'SiTrackerBarrel_z0_{suffix}'
+                    constants.setdefault(z0_name, (rc_val - b_intercept) / tan_theta)
+
+        circular_spacing = constants.get('SiTracker_circular_spacing')
+        z_spacing = constants.get('SiTracker_module_z_spacing')
+        layer_specs = [
+            ('inner', 'SiTrackerBarrel_inner_rc', 'SiTrackerBarrel_inner_z0'),
+            ('2', 'SiTrackerBarrel_rc_2', 'SiTrackerBarrel_z0_2'),
+            ('3', 'SiTrackerBarrel_rc_3', 'SiTrackerBarrel_z0_3'),
+            ('4', 'SiTrackerBarrel_rc_4', 'SiTrackerBarrel_z0_4'),
+            ('outer', 'SiTrackerBarrel_outer_rc', 'SiTrackerBarrel_outer_z0'),
+        ]
+
+        for prefix, rc_name, z0_name in layer_specs:
+            rc_val = constants.get(rc_name)
+            if rc_val is None:
+                continue
+
+            if prefix in ['inner', 'outer']:
+                nphi_name = f'SiTrackerBarrel_{prefix}_nphi'
+                nz_name = f'SiTrackerBarrel_{prefix}_nz'
+            else:
+                nphi_name = f'SiTrackerBarrel_nphi_{prefix}'
+                nz_name = f'SiTrackerBarrel_nz_{prefix}'
+
+            if circular_spacing:
+                constants.setdefault(nphi_name, math.floor(rc_val / circular_spacing))
+
+            z0_val = constants.get(z0_name)
+            if z0_val is not None and z_spacing:
+                constants.setdefault(nz_name, 1 + math.floor(z0_val / z_spacing))
+
+        # Ensure final values exist even if earlier substitutions failed
+        for prefix, rc_name, z0_name in layer_specs:
+            rc_val = constants.get(rc_name)
+            z0_val = constants.get(z0_name)
+            if rc_val is None or z0_val is None:
+                continue
+
+            if prefix in ['inner', 'outer']:
+                nphi_name = f'SiTrackerBarrel_{prefix}_nphi'
+                nz_name = f'SiTrackerBarrel_{prefix}_nz'
+            else:
+                nphi_name = f'SiTrackerBarrel_nphi_{prefix}'
+                nz_name = f'SiTrackerBarrel_nz_{prefix}'
+
+            if circular_spacing:
+                constants[nphi_name] = math.floor(rc_val / circular_spacing)
+            if z_spacing:
+                constants[nz_name] = 1 + math.floor(z0_val / z_spacing)
+
         return constants
-    
+
     # Evaluate all constants
     constants = {}
     for name in raw_constants:
@@ -1418,22 +1464,126 @@ def process_calo_hit(hit_data, layer_info, is_barrel=True):
     
 
 def parse_forward_geometry(detector, config, geometry_info, constants):
-    """
-    Minimal forward geometry parser.
-    Reads the <dimensions> element and stores some dummy values.
-    """
+    """Parse forward calorimeter style detectors (BeamCal/LumiCal)."""
     dims = detector.find("dimensions")
     if dims is None:
         raise ValueError("No <dimensions> element found for forward detector")
-    geometry_info["inner_r"] = parse_value(dims.get("inner_r"), constants)
-    geometry_info["outer_r"] = parse_value(dims.get("outer_r"), constants)
-    geometry_info["inner_z"] = parse_value(dims.get("inner_z"), constants)
-    geometry_info["outer_z"] = parse_value(dims.get("outer_z"), constants)
-    geometry_info["total_cells"] = 1  # dummy
+
+    inner_r = parse_value(dims.get("inner_r"), constants)
+    outer_r = parse_value(dims.get("outer_r"), constants)
+    inner_z = parse_value(dims.get("inner_z"), constants)
+    outer_z = parse_value(dims.get("outer_z"), constants)
+
+    geometry_info.update({
+        'inner_r': inner_r,
+        'outer_r': outer_r,
+        'inner_z': inner_z,
+        'outer_z': outer_z
+    })
+
+    cell_size = config.get_cell_size()
+    cell_area = cell_size['x'] * cell_size['y'] if cell_size else 1.0
+    detector_area = math.pi * (outer_r ** 2 - inner_r ** 2) if inner_r is not None and outer_r is not None else None
+
+    geometry_info['layers'] = {}
+    total_cells = 0
+    layer_index = 1
+
+    for layer in detector.findall('.//layer'):
+        repeat = parse_repeat_value(layer, constants)
+        sensitive_slices = parse_layer_sensitive_slices(layer)
+
+        cells_per_layer = 0
+        if detector_area and cell_area > 0:
+            cells_per_layer = int(detector_area / cell_area)
+        cells_per_layer = max(cells_per_layer, 1)
+
+        for r in range(repeat):
+            geometry_info['layers'][layer_index] = {
+                'cells_per_layer': cells_per_layer,
+                'sensitive_slices': sensitive_slices,
+                'total_cells': cells_per_layer * max(sensitive_slices, 1),
+                'repeat_group': layer_index - 1,
+                'repeat_number': r
+            }
+            total_cells += cells_per_layer * max(sensitive_slices, 1)
+            layer_index += 1
+
+    geometry_info['total_cells'] = total_cells
+
 
 def parse_muon_geometry(detector, config, geometry_info, constants):
-    """
-    Minimal muon geometry parser.
-    """
-    geometry_info["muon_stub"] = True
-    geometry_info["total_cells"] = 1
+    """Parse muon barrel and endcap geometry using available constants."""
+    detector_name = config.name
+    cell_size = config.get_cell_size()
+    area_per_cell = cell_size['x'] * cell_size['y'] if cell_size else 1.0
+
+    geometry_info['layers'] = {}
+    total_cells = 0
+    layer_index = 1
+
+    if detector_name == 'MuonBarrel':
+        r_min = parse_value(constants.get('MuonBarrel_rmin'), constants)
+        r_max = parse_value(constants.get('MuonBarrel_rmax'), constants)
+        half_length = parse_value(constants.get('MuonBarrel_half_length'), constants)
+
+        if None in (r_min, r_max, half_length):
+            return
+
+        circumference = 2 * math.pi * ((r_min + r_max) / 2)
+        length = 2 * half_length
+
+        cells_phi = max(int(circumference / cell_size['x']), 1)
+        cells_z = max(int(length / cell_size['y']), 1)
+        cells_per_layer = cells_phi * cells_z
+
+        for layer in detector.findall('.//layer'):
+            repeat = parse_repeat_value(layer, constants)
+            sensitive_slices = parse_layer_sensitive_slices(layer)
+            for r in range(repeat):
+                geometry_info['layers'][layer_index] = {
+                    'cells_per_layer': cells_per_layer,
+                    'sensitive_slices': sensitive_slices,
+                    'total_cells': cells_per_layer * max(sensitive_slices, 1),
+                    'repeat_group': layer_index - 1,
+                    'repeat_number': r
+                }
+                total_cells += cells_per_layer * max(sensitive_slices, 1)
+                layer_index += 1
+
+        geometry_info['total_cells'] = total_cells
+        geometry_info['length'] = length
+        geometry_info['inner_r'] = r_min
+        geometry_info['outer_r'] = r_max
+
+    elif detector_name == 'MuonEndcap':
+        r_min = parse_value(constants.get('MuonEndcap_rmin'), constants)
+        r_max = parse_value(constants.get('MuonEndcap_rmax'), constants)
+        z_min = parse_value(constants.get('MuonEndcap_zmin'), constants)
+        z_max = parse_value(constants.get('MuonEndcap_zmax'), constants)
+
+        if None in (r_min, r_max, z_min, z_max):
+            return
+
+        detector_area = math.pi * (r_max ** 2 - r_min ** 2)
+        cells_per_plate = max(int(detector_area / area_per_cell), 1)
+
+        for layer in detector.findall('.//layer'):
+            repeat = parse_repeat_value(layer, constants)
+            sensitive_slices = parse_layer_sensitive_slices(layer)
+            for r in range(repeat):
+                geometry_info['layers'][layer_index] = {
+                    'cells_per_layer': cells_per_plate,
+                    'sensitive_slices': sensitive_slices,
+                    'total_cells': cells_per_plate * max(sensitive_slices, 1),
+                    'repeat_group': layer_index - 1,
+                    'repeat_number': r
+                }
+                total_cells += cells_per_plate * max(sensitive_slices, 1)
+                layer_index += 1
+
+        geometry_info['total_cells'] = total_cells
+        geometry_info['inner_r'] = r_min
+        geometry_info['outer_r'] = r_max
+        geometry_info['zmin'] = z_min
+        geometry_info['zmax'] = z_max

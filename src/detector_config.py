@@ -4,7 +4,7 @@ class DetectorConfig:
     
     # Default cell sizes in mm
     DEFAULT_CELL_SIZES = {
-        'vertex': {'x': 0.003, 'y': 0.003},      # 3x3 micron
+        'vertex': {'x': 0.01, 'y': 0.01},      # 10x10 micron
         'tracker': {'x': 0.02, 'y': 0.02},     # 20x20 micron
         'ecal': {'x': 3.0, 'y': 3.0},          # 3x3 mm
         'hcal': {'x': 30.0, 'y': 30.0},        # 3x3 cm

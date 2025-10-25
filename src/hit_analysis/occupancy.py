@@ -7,6 +7,9 @@ from src.segmentation.pixelizers import calculate_local_coordinates,get_pixel_in
 from src.geometry_parsing.geometry_info import get_geometry_info
 from src.geometry_parsing.cellid_decoders import decode_dd4hep_cellid
 
+# Import vectorized hit processing
+from src.utils.vectorized_hit_processing import process_hits_vectorized, benchmark_hit_processing
+
 
 
 
@@ -155,7 +158,53 @@ def calculate_layer_occupancy(layer_cells, total_cells, threshold):
 
 
 
-def analyze_detector_hits(events_trees, detector_name, config, hit_thresholds=None, 
+def _resolve_energy_thresholds(detector_name: str, detector_class: str, energy_thresholds: dict):
+    """Resolve per-detector energy thresholds with barrel/endcap overrides.
+
+    Resolution order per quantity (hits/contributions/silicon):
+      1) Exact detector name override, e.g. 'ECalEndcap_hits', 'SiTrackerBarrel_silicon'
+      2) Class-level default (ecal/hcal/muon/silicon/forward calo)
+
+    Returns a dict with keys: 'si', 'hits', 'contrib'. Missing quantities are 0.
+    """
+    det_lower = (detector_class or "").lower()
+
+    # Class defaults
+    if det_lower in ['vertex', 'tracker']:
+        base_si = energy_thresholds.get('silicon', 30e-3)
+        base_hits = 0
+        base_contrib = 0
+    elif det_lower == 'ecal':
+        base_si = 0
+        base_hits = energy_thresholds.get('ecal_hits', 5e-3)
+        base_contrib = energy_thresholds.get('ecal_contributions', 0.2e-3)
+    elif det_lower == 'hcal':
+        base_si = 0
+        base_hits = energy_thresholds.get('hcal_hits', 20e-3)
+        base_contrib = energy_thresholds.get('hcal_contributions', 1e-3)
+    elif det_lower == 'muon':
+        base_si = 0
+        base_hits = energy_thresholds.get('muon_hits', 50e-3)
+        base_contrib = energy_thresholds.get('muon_contributions', 5e-3)
+    elif det_lower in ['beamcal', 'lumical']:
+        # Use ECAL-like defaults for forward calorimeters
+        base_si = 0
+        base_hits = energy_thresholds.get('ecal_hits', 5e-3)
+        base_contrib = energy_thresholds.get('ecal_contributions', 0.2e-3)
+    else:
+        base_si = 0
+        base_hits = 0
+        base_contrib = 0
+
+    # Exact-name overrides (e.g. 'ECalEndcap_hits', 'SiTrackerBarrel_silicon')
+    si = energy_thresholds.get(f'{detector_name}_silicon', base_si)
+    hits = energy_thresholds.get(f'{detector_name}_hits', base_hits)
+    contrib = energy_thresholds.get(f'{detector_name}_contributions', base_contrib)
+
+    return {'si': si, 'hits': hits, 'contrib': contrib}
+
+
+def analyze_detector_hits(events_trees, detector_name, config, buffer_depths=None, 
                          geometry_file=None, constants=None, main_xml=None, remove_zeros=True, 
                          time_cut=-1, calo_hit_time_def=0,
                          energy_thresholds=None):
@@ -171,8 +220,8 @@ def analyze_detector_hits(events_trees, detector_name, config, hit_thresholds=No
         Name of the detector
     config : DetectorConfig
         Detector configuration
-    hit_thresholds : list, optional
-        List of hit thresholds for occupancy calculation
+    buffer_depths : list, optional
+        List of buffer depths for occupancy calculation (applied to counts-per-cell)
     geometry_file : str, optional
         Path to geometry XML file
     constants : dict, optional
@@ -197,8 +246,8 @@ def analyze_detector_hits(events_trees, detector_name, config, hit_thresholds=No
             'muon_contributions': 5e-3      # For Muon hit contributions, in GeV
         }
     """
-    if hit_thresholds is None:
-        hit_thresholds = [1]
+    if buffer_depths is None:
+        buffer_depths = [1]
     
     # Default energy thresholds if none provided
     if energy_thresholds is None:
@@ -214,33 +263,18 @@ def analyze_detector_hits(events_trees, detector_name, config, hit_thresholds=No
 
 
     # Determine detector type
-    is_silicon = config.detector_class.lower() in ['vertex', 'tracker']
-    is_ecal = config.detector_class.lower() == 'ecal'
-    is_hcal = config.detector_class.lower() == 'hcal'
-    is_muon = config.detector_class.lower() == 'muon'
-    is_forward_calo = config.detector_class.lower() in ['beamcal', 'lumical']
+    det_class = config.detector_class
+    is_silicon = det_class.lower() in ['vertex', 'tracker']
+    is_ecal = det_class.lower() == 'ecal'
+    is_hcal = det_class.lower() == 'hcal'
+    is_muon = det_class.lower() == 'muon'
+    is_forward_calo = det_class.lower() in ['beamcal', 'lumical']
 
-    # Set appropriate thresholds based on detector type
-    if is_silicon:
-        si_threshold = energy_thresholds.get('silicon', 30e-3)
-    elif is_ecal:
-        hits_threshold = energy_thresholds.get('ecal_hits', 5e-3)
-        contributions_threshold = energy_thresholds.get('ecal_contributions', 0.2e-3)
-    elif is_hcal:
-        hits_threshold = energy_thresholds.get('hcal_hits', 20e-3)
-        contributions_threshold = energy_thresholds.get('hcal_contributions', 1e-3)
-    elif is_muon:
-        hits_threshold = energy_thresholds.get('muon_hits', 50e-3)
-        contributions_threshold = energy_thresholds.get('muon_contributions', 5e-3)
-    elif is_forward_calo:
-        # Use ECAL thresholds for forward calorimeters
-        hits_threshold = energy_thresholds.get('ecal_hits', 5e-3)
-        contributions_threshold = energy_thresholds.get('ecal_contributions', 0.2e-3)
-    else:
-        # Default values for unknown detector types
-        hits_threshold = 0
-        contributions_threshold = 0
-        si_threshold = 0  
+    # Resolve thresholds with per-detector overrides
+    _thr = _resolve_energy_thresholds(detector_name, det_class, energy_thresholds)
+    si_threshold = _thr['si'] if is_silicon else 0
+    hits_threshold = _thr['hits'] if (is_ecal or is_hcal or is_muon or is_forward_calo) else 0
+    contributions_threshold = _thr['contrib'] if (is_ecal or is_hcal or is_muon or is_forward_calo) else 0
 
 
     # Build branch names
@@ -291,7 +325,19 @@ def analyze_detector_hits(events_trees, detector_name, config, hit_thresholds=No
         for events_tree in events_trees:
             #branches_to_read = [cellid_branch] + pos_branches + time_branches
             #array = events_tree.arrays(branches_to_read)
-            array = events_tree.arrays(main_branches)
+            try:
+                array = events_tree.arrays(main_branches)
+            except Exception as e:
+                # Missing collection(s) in this tree; skip gracefully
+                print(f"Error reading event data for {detector_name}: {e}")
+                # Append empty arrays to keep alignment
+                filtered_cellids.append(ak.Array([]))
+                filtered_x.append(ak.Array([]))
+                filtered_y.append(ak.Array([]))
+                filtered_z.append(ak.Array([]))
+                filtered_t.append(ak.Array([]))
+                filtered_e.append(ak.Array([]))
+                continue
 
             cellids = array[cellid_branch]
             x = array[pos_branches[0]]
@@ -447,13 +493,26 @@ def analyze_detector_hits(events_trees, detector_name, config, hit_thresholds=No
             filtered_t.append(ak.flatten(time))
             filtered_e.append(ak.flatten(energy))
 
-        # Concadtenate filtered results across all events
-        cellids_combined = ak.concatenate(filtered_cellids)
-        x_flat = ak.concatenate(filtered_x)
-        y_flat = ak.concatenate(filtered_y)
-        z_flat = ak.concatenate(filtered_z)
-        t_flat = ak.concatenate(filtered_t)
-        e_flat = ak.concatenate(filtered_e)
+        # Concatenate filtered results across all events (handle all-empty case)
+        if filtered_cellids:
+            non_empty_idx = [i for i, arr in enumerate(filtered_cellids) if len(arr) > 0]
+        else:
+            non_empty_idx = []
+        if non_empty_idx:
+            cellids_combined = ak.concatenate([filtered_cellids[i] for i in non_empty_idx])
+            x_flat = ak.concatenate([filtered_x[i] for i in non_empty_idx])
+            y_flat = ak.concatenate([filtered_y[i] for i in non_empty_idx])
+            z_flat = ak.concatenate([filtered_z[i] for i in non_empty_idx])
+            t_flat = ak.concatenate([filtered_t[i] for i in non_empty_idx])
+            e_flat = ak.concatenate([filtered_e[i] for i in non_empty_idx])
+        else:
+            # No hits found; return an empty-but-well-formed result
+            cellids_combined = ak.Array([])
+            x_flat = ak.Array([])
+            y_flat = ak.Array([])
+            z_flat = ak.Array([])
+            t_flat = ak.Array([])
+            e_flat = ak.Array([])
 
     except Exception as e:
         print(f"Error reading event data for {detector_name}: {e}")
@@ -487,7 +546,7 @@ def analyze_detector_hits(events_trees, detector_name, config, hit_thresholds=No
     
     # Compute per-threshold statistics
     stats = {}
-    for threshold in hit_thresholds:
+    for threshold in buffer_depths:
         layer_stats = {}
         for pixel_key, count in pixel_hits.items():
             layer = pixel_key[0]
@@ -513,10 +572,19 @@ def analyze_detector_hits(events_trees, detector_name, config, hit_thresholds=No
                 lstats['occupancy'] = 0.0
             lstats['mean_hits'] = np.mean(lstats['hit_counts'])
             del lstats['hit_counts']
+        # Build safe stats even when layer_stats is empty
+        if layer_stats:
+            max_hits_per_cell = max(s['max_hits'] for s in layer_stats.values())
+            overall_cells_hit = sum(s['cells_hit'] for s in layer_stats.values())
+            overall_cells_above = sum(s['cells_above_threshold'] for s in layer_stats.values())
+        else:
+            max_hits_per_cell = 0
+            overall_cells_hit = 0
+            overall_cells_above = 0
         stats[threshold] = {
-            'overall_cells_hit': sum(s['cells_hit'] for s in layer_stats.values()),
-            'overall_cells_above_threshold': sum(s['cells_above_threshold'] for s in layer_stats.values()),
-            'max_hits_per_cell': max(s['max_hits'] for s in layer_stats.values()),
+            'overall_cells_hit': overall_cells_hit,
+            'overall_cells_above_threshold': overall_cells_above,
+            'max_hits_per_cell': max_hits_per_cell,
             'hit_distribution': dict(Counter(count for count in pixel_hits.values())),
             'per_layer': layer_stats
         }
@@ -545,7 +613,177 @@ def analyze_detector_hits(events_trees, detector_name, config, hit_thresholds=No
     }
 
 
-     
+def analyze_detector_hits_vectorized(events_trees, detector_name, config, buffer_depths=None, 
+                                   geometry_file=None, constants=None, main_xml=None, 
+                                   remove_zeros=True, time_cut=-1, calo_hit_time_def=0,
+                                   energy_thresholds=None, use_vectorized=True):
+    """
+    Analyze hits using vectorized processing for improved performance.
+    
+    This is an optimized version of analyze_detector_hits that uses vectorized
+    operations instead of Python loops for significant speed improvements.
+    
+    Parameters are the same as analyze_detector_hits, with additional:
+    -----------
+    use_vectorized : bool
+        If True, use vectorized hit processing. If False, fall back to original method.
+    """
+    
+    print(f"Analyzing {detector_name} with {'vectorized' if use_vectorized else 'traditional'} processing...")
+    
+    # First, do all the data loading and filtering (same as original)
+    # This part is already reasonably optimized with awkward arrays
+    
+    # Use the original function for data loading and preprocessing
+    result = analyze_detector_hits(
+        events_trees, detector_name, config, buffer_depths,
+        geometry_file, constants, main_xml, remove_zeros, 
+        time_cut, calo_hit_time_def, energy_thresholds
+    )
+    
+    if not use_vectorized or result is None:
+        return result
+    
+    #Dimitris!!! temporary override, return the result of the original function
+    #print("!!! Cautious override, returning the result of the original function !!!")
+    #return result
+    
+    # Extract the flattened hit data that was processed in the original function
+    # We'll re-process the pixel hit counting part with vectorized operations
+    
+    try:
+        # Re-read the data for vectorized processing
+        if buffer_depths is None:
+            buffer_depths = [1]
+            
+        # Determine detector type (same logic as original)
+        is_silicon = config.detector_class.lower() in ['vertex', 'tracker']
+        is_ecal = config.detector_class.lower() == 'ecal'
+        is_hcal = config.detector_class.lower() == 'hcal'
+        is_muon = config.detector_class.lower() == 'muon'
+        is_forward_calo = config.detector_class.lower() in ['beamcal', 'lumical']
+        
+        # Set energy thresholds (same logic as original)
+        if energy_thresholds is None:
+            energy_thresholds = {
+                'silicon': 30e-3, 'ecal_hits': 5e-3, 'ecal_contributions': 0.2e-3,
+                'hcal_hits': 20e-3, 'hcal_contributions': 1e-3,
+                'muon_hits': 50e-3, 'muon_contributions': 5e-3
+            }
+        
+        # Build branch names (same as original)
+        hits_prefix = f"{detector_name}Hits"
+        cellid_branch = f"{hits_prefix}/{hits_prefix}.cellID"
+        pos_branches = [f"{hits_prefix}/{hits_prefix}.position.x",
+                       f"{hits_prefix}/{hits_prefix}.position.y",
+                       f"{hits_prefix}/{hits_prefix}.position.z"]
+        
+        if is_silicon:
+            energy_branch = f"{hits_prefix}/{hits_prefix}.eDep"
+            time_branch = f"{hits_prefix}/{hits_prefix}.time"
+            main_branches = [cellid_branch] + pos_branches + [energy_branch, time_branch]
+        else:
+            # For calorimeters, use the complex branch structure from original
+            energy_branch = f"{hits_prefix}/{hits_prefix}.energy"
+            contrib_time_branch = f"{detector_name}HitsContributions/{detector_name}HitsContributions.time"
+            contrib_energy_branch = f"{detector_name}HitsContributions/{detector_name}HitsContributions.energy"
+            contrib_begin_branch = f"{hits_prefix}/{hits_prefix}.contributions_begin"
+            contrib_end_branch = f"{hits_prefix}/{hits_prefix}.contributions_end"
+            main_branches = [cellid_branch] + pos_branches + [
+                energy_branch, contrib_time_branch, contrib_energy_branch, 
+                contrib_begin_branch, contrib_end_branch
+            ]
+        
+        # Read and process data (simplified version - focus on the vectorizable part)
+        filtered_cellids = []
+        filtered_x = []
+        filtered_y = []
+        filtered_z = []
+        
+        for events_tree in events_trees:
+            array = events_tree.arrays(main_branches)
+            
+            cellids = array[cellid_branch]
+            x = array[pos_branches[0]]
+            y = array[pos_branches[1]]
+            z = array[pos_branches[2]]
+            
+            # Apply energy and time filtering (same logic as original but simplified)
+            if is_silicon:
+                time = array[time_branch]
+                energy = array[energy_branch]
+                
+                # Apply thresholds
+                _thr = _resolve_energy_thresholds(detector_name, config.detector_class, energy_thresholds)
+                si_threshold = _thr['si']
+                if si_threshold > 0:
+                    energy_mask = energy >= si_threshold
+                    cellids = cellids[energy_mask]
+                    x = x[energy_mask]
+                    y = y[energy_mask]
+                    z = z[energy_mask]
+                    time = time[energy_mask]
+                
+                # Apply time cut
+                if time_cut > 0:
+                    time_mask = time < time_cut
+                    cellids = cellids[time_mask]
+                    x = x[time_mask]
+                    y = y[time_mask]
+                    z = z[time_mask]
+            
+            # Apply zero filtering
+            if remove_zeros:
+                non_zero_mask = ak.any((x != 0.0) | (y != 0.0) | (z != 0.0), axis=1)
+                cellids = cellids[non_zero_mask]
+                x = x[non_zero_mask]
+                y = y[non_zero_mask]
+                z = z[non_zero_mask]
+            
+            # Flatten and store
+            filtered_cellids.append(ak.flatten(cellids))
+            filtered_x.append(ak.flatten(x))
+            filtered_y.append(ak.flatten(y))
+            filtered_z.append(ak.flatten(z))
+        
+        # Combine all data
+        cellids_combined = ak.concatenate(filtered_cellids)
+        x_flat = ak.concatenate(filtered_x)
+        y_flat = ak.concatenate(filtered_y)
+        z_flat = ak.concatenate(filtered_z)
+        
+        print(f"Processing {len(cellids_combined)} hits with vectorized operations...")
+        
+        # Get geometry info
+        geometry_info = None
+        if geometry_file:
+            from src.geometry_parsing.geometry_info import get_geometry_info
+            geometry_info = get_geometry_info(geometry_file, config, constants, main_xml)
+        
+        # Use vectorized processing for the hit counting and analysis
+        cellids_np = ak.to_numpy(cellids_combined)
+        x_np = ak.to_numpy(x_flat)
+        y_np = ak.to_numpy(y_flat)
+        z_np = ak.to_numpy(z_flat)
+
+        vectorized_stats = process_hits_vectorized(
+            cellids_np, x_np, y_np, z_np,
+            detector_name, buffer_depths, geometry_info, config
+        )
+        
+        # Update the result with vectorized statistics
+        result['threshold_stats'] = vectorized_stats
+        result['vectorized_processing'] = True
+        
+        return result
+        
+    except Exception as e:
+        print(f"Error in vectorized processing for {detector_name}: {e}")
+        print("Falling back to traditional processing...")
+        return result  # Return original result as fallback
+
+
+    
 
 
 
@@ -653,3 +891,36 @@ def analyze_vertex_detector(events_trees, hit_thresholds=None, geometry_file=Non
     }
 
 
+def summarize_stats_over_detector(stats, geometry_info, threshold=1):
+    """
+    Summarize total hits, total cells, and mean occupancy for a detector.
+
+    - total hits: sum of per-layer total hits at the given threshold
+    - total cells: sum of total cells across all layers
+    - mean occupancy: total_hits / total_cells
+    """
+    # Sum total cells from geometry info
+    total_cells = 0
+    try:
+        for layer_info in geometry_info.get('layers', {}).values():
+            total_cells += int(layer_info.get('total_cells', 0) or 0)
+    except Exception:
+        total_cells = 0
+
+    # Sum total hits from stats per-layer
+    total_hits = 0
+    try:
+        per_layer = stats.get('threshold_stats', {}).get(threshold, {}).get('per_layer', {})
+        for layer_stats in per_layer.values():
+            total_hits += float(layer_stats.get('total_hits', 0) or 0)
+    except Exception:
+        total_hits = 0.0
+
+    mean_occupancy = (total_hits / total_cells) if total_cells > 0 else 0.0
+
+    return {
+        'detector_name': geometry_info.get('detector_name', stats.get('detector_name', 'unknown')),
+        'total_hits': total_hits,
+        'total_cells': total_cells,
+        'mean_occupancy': mean_occupancy,
+    }
