@@ -1,6 +1,32 @@
+import os
+from typing import Dict, List, Tuple
+
 import xml.etree.ElementTree as ET
 import numpy as np 
 import math 
+
+
+# Allow overriding the assumed radial orientation of trapezoid modules via env var.
+# Format: "DetectorName:radial_x,OtherDetector:radial_z"
+def _build_trd_orientation_overrides() -> Dict[str, str]:
+    overrides: Dict[str, str] = {}
+    env_value = os.getenv("DD4HEP_TRD_RADIAL_AXIS", "")
+    if not env_value:
+        return overrides
+    for item in env_value.split(","):
+        item = item.strip()
+        if not item or ":" not in item:
+            continue
+        det_name, axis = item.split(":", 1)
+        axis = axis.strip().lower()
+        if axis not in {"radial_x", "radial_z"}:
+            continue
+        overrides[det_name.strip().lower()] = axis
+    return overrides
+
+
+_TRD_ORIENTATION_OVERRIDES = _build_trd_orientation_overrides()
+DEFAULT_TRD_ORIENTATION = "radial_x"
 
 
 
@@ -83,6 +109,32 @@ def parse_repeat_value(layer_elem, constants):
         if value is not None:
             return int(value)
         return 1
+
+
+def _get_trd_orientation(config) -> str:
+    """
+    Determine how to interpret trapezoid parameters for the provided detector.
+    Returns either 'radial_x' (historical behaviour) or 'radial_z'.
+    
+    For SiD disk-type detectors (vertex/tracker endcap/forward), the k4geo drivers
+    apply rotation RotationZYX(0, -π/2-φ, -π/2) which maps:
+    - TRD local z → global radial direction
+    - TRD local x1/x2 → global azimuthal widths
+    
+    Therefore for these detectors we need 'radial_z' orientation.
+    """
+    name = getattr(config, "name", "").strip().lower()
+    if name in _TRD_ORIENTATION_OVERRIDES:
+        return _TRD_ORIENTATION_OVERRIDES[name]
+
+    detector_class = getattr(config, "detector_class", "").lower()
+    detector_type = getattr(config, "detector_type", "").lower()
+
+    # SiD disk-type detectors use k4geo drivers that rotate TRD so z becomes radial
+    if detector_class in {"vertex", "tracker"} and detector_type in {"endcap", "forward"}:
+        return "radial_z"
+
+    return DEFAULT_TRD_ORIENTATION
 
 def handle_layer_id(layer_elem, repeat_index=0):
     """
@@ -1309,14 +1361,32 @@ def parse_endcap_geometry(detector, config, geometry_info, constants):
                     'total_cells': nmodules * module['total_pixels'] * repeat
                 })
                 
-                # Calculate ring bounds
+                # Calculate ring bounds using correct orientation
                 if ring_info['type'] == 'trd':
-                    ring_info.update({
-                        'r_inner': r - ring_info['x1']/2,
-                        'r_outer': r + ring_info['x2']/2,
-                        'z_min': zstart,
-                        'z_max': zstart + ring_info['z']
-                    })
+                    # Get TRD orientation for this detector
+                    orientation = _get_trd_orientation(config)
+                    
+                    if orientation == 'radial_z':
+                        # For SiD-style disk detectors: z is radial, x1/x2 are azimuthal
+                        radial_half_thickness = ring_info['z']
+                        ring_info.update({
+                            'r_inner': r - radial_half_thickness,
+                            'r_outer': r + radial_half_thickness,
+                            'z_min': zstart,
+                            'z_max': zstart + radial_half_thickness,  # z extent in beam direction
+                            'azimuthal_width_inner': 2 * ring_info['x1'],  # store for area calculations
+                            'azimuthal_width_outer': 2 * ring_info['x2'],
+                            'radial_thickness': 2 * radial_half_thickness
+                        })
+                    else:
+                        # Historical behavior: x1/x2 are radial dimensions
+                        ring_info.update({
+                            'r_inner': r - ring_info['x1']/2,
+                            'r_outer': r + ring_info['x2']/2,
+                            'z_min': zstart,
+                            'z_max': zstart + ring_info['z'],
+                            'radial_thickness': ring_info['z']
+                        })
                 else:
                     half_width = ring_info['width'] / 2
                     ring_info.update({
@@ -1382,7 +1452,7 @@ def find_matching_ring(hit_pos, layer_info):
 
 
 
-def calculate_endcap_ring_bounds(ring_info):
+def calculate_endcap_ring_bounds(ring_info, config=None):
     """
     Calculate the geometric bounds of a ring for hit assignment.
     
@@ -1390,6 +1460,8 @@ def calculate_endcap_ring_bounds(ring_info):
     -----------
     ring_info : dict
         Ring geometry information
+    config : DetectorConfig, optional
+        Detector configuration for orientation detection
         
     Returns:
     --------
@@ -1398,11 +1470,24 @@ def calculate_endcap_ring_bounds(ring_info):
     r = ring_info['r']
     z = ring_info['zstart']
     
-    # If we have a trapezoid module, use that for width
+    # If we have a trapezoid module, use correct orientation
     if ring_info['type'] == 'trd':
-        r_inner = r - ring_info['x1']/2
-        r_outer = r + ring_info['x2']/2
-        z_extent = ring_info['z']
+        if config:
+            orientation = _get_trd_orientation(config)
+        else:
+            orientation = ring_info.get('orientation', 'radial_x')
+            
+        if orientation == 'radial_z':
+            # For SiD-style: z is radial dimension
+            radial_half_thickness = ring_info['z']
+            r_inner = r - radial_half_thickness
+            r_outer = r + radial_half_thickness
+            z_extent = radial_half_thickness  # minimal z extent
+        else:
+            # Historical: x1/x2 are radial
+            r_inner = r - ring_info['x1']/2
+            r_outer = r + ring_info['x2']/2
+            z_extent = ring_info['z']
     else:
         # For rectangular modules, use width/2 in both directions
         half_width = ring_info['width'] / 2

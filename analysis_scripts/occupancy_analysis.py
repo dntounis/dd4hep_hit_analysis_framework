@@ -371,27 +371,27 @@ print(len(seeds))
 
 #============================= INPUTS =============================
 
-#bunches_per_train = 532 #133 #266 #532
-bunches_per_train = 300 #75 #150 #300
+bunches_per_train = 133 #133 #266 #532
+#bunches_per_train = 300 #75 #150 #300
 
 
 # Directory path and filename pattern
 
 # for 250 BL and s.u.
-#base_path = "/fs/ddn/sdf/group/atlas/d/dntounis/C^3/bkg_studies_2023/GuineaPig_July_2024/output_new/C3_250_PS1/ddsim/"
-#filename_pattern = "ddsim_C3_250_PS1_v2_seed_{}.edm4hep.root"
+base_path = "/fs/ddn/sdf/group/atlas/d/dntounis/C^3/bkg_studies_2023/GuineaPig_July_2024/output_new/C3_250_PS1/ddsim/"
+filename_pattern = "ddsim_C3_250_PS1_v2_seed_{}.edm4hep.root"
 
 # for 250 high-L
 #base_path = "/fs/ddn/sdf/group/atlas/d/dntounis/C^3/bkg_studies_2023/GuineaPig_July_2024/output_new/C3_250_PS2/ddsim/"
 #filename_pattern = "ddsim_C3_250_PS2_v2_seed_{}.edm4hep.root"
 
 # for all 550 scenarios
-base_path = "/fs/ddn/sdf/group/atlas/d/dntounis/C^3/bkg_studies_2023/GuineaPig_July_2024/output_new/C3_550_PS2/ddsim/"
-filename_pattern = "ddsim_C3_550_PS2_v2_seed_{}_MERGED.edm4hep.root"
+#base_path = "/fs/ddn/sdf/group/atlas/d/dntounis/C^3/bkg_studies_2023/GuineaPig_July_2024/output_new/C3_550_PS2/ddsim/"
+#filename_pattern = "ddsim_C3_550_PS2_v2_seed_{}_MERGED.edm4hep.root"
 
 # for 250 BL and s.u.
-#HPP_FILE = "/fs/ddn/sdf/group/atlas/d/dntounis/C^3/hadron_photoproduction/aahadhad/work_C3_250_PS1/ddsim_C3_250_PS1_gg_had_MERGED.edm4hep.root"  # e.g. "/path/to/hpp_background.edm4hep.root"
-#HPP_MU = 0.059    
+HPP_FILE = "/fs/ddn/sdf/group/atlas/d/dntounis/C^3/hadron_photoproduction/aahadhad/work_C3_250_PS1/ddsim_C3_250_PS1_gg_had_MERGED.edm4hep.root"  # e.g. "/path/to/hpp_background.edm4hep.root"
+HPP_MU = 0.059    
 
 # for 250 high-L
 #HPP_FILE = "/fs/ddn/sdf/group/atlas/d/dntounis/C^3/hadron_photoproduction/aahadhad/work_C3_250_PS2/ddsim_C3_250_PS2_gg_had_MERGED.edm4hep.root"  # e.g. "/path/to/hpp_background.edm4hep.root"
@@ -399,12 +399,12 @@ filename_pattern = "ddsim_C3_550_PS2_v2_seed_{}_MERGED.edm4hep.root"
 
 
 # for all 550 scenarios
-HPP_FILE = "/fs/ddn/sdf/group/atlas/d/dntounis/C^3/hadron_photoproduction/aahadhad/work_C3_550_PS2/ddsim_C3_550_PS2_gg_had_MERGED.edm4hep.root"  # e.g. "/path/to/hpp_background.edm4hep.root"
-HPP_MU = 0.29    
+#HPP_FILE = "/fs/ddn/sdf/group/atlas/d/dntounis/C^3/hadron_photoproduction/aahadhad/work_C3_550_PS2/ddsim_C3_550_PS2_gg_had_MERGED.edm4hep.root"  # e.g. "/path/to/hpp_background.edm4hep.root"
+#HPP_MU = 0.29    
 
 
 # Plot label parameters
-SCENARIO_LABEL = "C³ 550 high-L"  # Shown on left with (N bunches/train)
+SCENARIO_LABEL = "C³ 250 B.L."  # Shown on left with (N bunches/train)
 # B.L. , s.u. , high-L
 
 DETECTOR_VERSION = "SiD_o2_v04"  # Shown on right with subdetector and background type
@@ -475,9 +475,9 @@ muon_endcap_xml = xmls['muon_endcap_xml']
 DETECTOR_CONFIGS['SiVertexBarrel'].cell_sizes['default'] = {'x': 0.010, 'y': 0.010}
 #DETECTOR_CONFIGS['SiVertexBarrel'].cell_sizes['default'] = {'x': 0.034, 'y': 0.034}
 DETECTOR_CONFIGS['SiTrackerBarrel'].cell_sizes['default'] = {'x': 0.025,  'y': 0.100}
-DETECTOR_CONFIGS['ECalBarrel'].cell_sizes['default']    = {'x': 0.050,  'y': 0.050}
+DETECTOR_CONFIGS['ECalBarrel'].cell_sizes['default']    = {'x': 0.025,  'y': 0.100}
 DETECTOR_CONFIGS['HCalBarrel'].cell_sizes['default']    = {'x': 30.0,  'y': 30.0}
-DETECTOR_CONFIGS['MuonBarrel'].cell_sizes['default']    = {'x': 10.0,  'y': 41.0}
+DETECTOR_CONFIGS['MuonBarrel'].cell_sizes['default']    = {'x': 41.0,  'y': 5500.0}
 
 
 
@@ -489,9 +489,9 @@ DETECTOR_CONFIGS['SiTrackerForward'].cell_sizes['default'] = {'x': 0.010, 'y': 0
 
 
 DETECTOR_CONFIGS['SiTrackerEndcap'].cell_sizes['default']  = {'x': 0.025,  'y': 0.100}
-DETECTOR_CONFIGS['ECalEndcap'].cell_sizes['default']       = {'x': 0.050,  'y': 0.050}
+DETECTOR_CONFIGS['ECalEndcap'].cell_sizes['default']       = {'x': 0.025,  'y': 0.100}
 DETECTOR_CONFIGS['HCalEndcap'].cell_sizes['default']       = {'x': 30.0, 'y': 30.0}
-DETECTOR_CONFIGS['MuonEndcap'].cell_sizes['default']       = {'x': 10.0, 'y': 41.0}
+DETECTOR_CONFIGS['MuonEndcap'].cell_sizes['default']       = {'x': 41.0, 'y': 5500.0}
 DETECTOR_CONFIGS['LumiCal'].cell_sizes['default']          = {'x': 2.5,  'y': 2.5}
 DETECTOR_CONFIGS['BeamCal'].cell_sizes['default']          = {'x': 5.0,  'y': 5.0}
 
@@ -527,10 +527,10 @@ DETECTOR_CONFIGS['BeamCal'].cell_sizes['default']          = {'x': 5.0,  'y': 5.
 # Try analyzing all detectors again
 detectors_to_analyze = [
     ('SiVertexBarrel', vertex_barrel_xml),
-    # ('SiVertexEndcap', vertex_endcap_xml),
+    #('SiVertexEndcap', vertex_endcap_xml),
     # ('SiTrackerBarrel', tracker_barrel_xml),
     # ('SiTrackerEndcap', tracker_endcap_xml),
-    # ('SiTrackerForward', tracker_forward_xml),
+    #('SiTrackerForward', tracker_forward_xml),
     # ('ECalBarrel', ecal_barrel_xml),
     # ('ECalEndcap', ecal_endcap_xml),
     # ('HCalBarrel', hcal_barrel_xml),
@@ -695,11 +695,11 @@ print(f"  - Vectorized hit processing: {'✓' if USE_VECTORIZED_PROCESSING else 
 
 
 detectors_to_analyze = [
-   #  ('SiVertexBarrel', vertex_barrel_xml),
-   #  ('SiVertexEndcap', vertex_endcap_xml),
+   ('SiVertexBarrel', vertex_barrel_xml),
+   ('SiVertexEndcap', vertex_endcap_xml),
    #   ('SiTrackerBarrel', tracker_barrel_xml),
    #   ('SiTrackerEndcap', tracker_endcap_xml),
-     ('SiTrackerForward', tracker_forward_xml),
+   ('SiTrackerForward', tracker_forward_xml),
    #   ('ECalBarrel', ecal_barrel_xml),
    #   ('ECalEndcap', ecal_endcap_xml),
    #   ('HCalBarrel', hcal_barrel_xml),

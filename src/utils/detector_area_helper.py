@@ -120,12 +120,23 @@ def _compute_endcap_tracker_area(geometry_info: Mapping) -> float:
             repeat = max(total_cells / (nmodules * total_pixels), 1.0)
 
             if ring.get("type") == "trd":
-                x1 = ring.get("x1")
-                x2 = ring.get("x2")
-                z_len = ring.get("z")
-                if not all(v is not None and v > 0 for v in (x1, x2, z_len)):
-                    continue
-                area_module = 0.5 * (x1 + x2) * z_len
+                # Check if we have the new orientation-aware dimensions
+                if "azimuthal_width_inner" in ring and "azimuthal_width_outer" in ring and "radial_thickness" in ring:
+                    # New SiD-style orientation: use azimuthal width × radial thickness
+                    azimuthal_width_avg = 0.5 * (ring["azimuthal_width_inner"] + ring["azimuthal_width_outer"])
+                    radial_thickness = ring["radial_thickness"]
+                    if azimuthal_width_avg > 0 and radial_thickness > 0:
+                        area_module = azimuthal_width_avg * radial_thickness
+                    else:
+                        continue
+                else:
+                    # Fallback to historical calculation
+                    x1 = ring.get("x1")
+                    x2 = ring.get("x2")
+                    z_len = ring.get("z")
+                    if not all(v is not None and v > 0 for v in (x1, x2, z_len)):
+                        continue
+                    area_module = 0.5 * (x1 + x2) * z_len
             else:
                 width = ring.get("width")
                 length = ring.get("length")
