@@ -572,7 +572,7 @@ def plot_train_averaged_occupancy_analysis(stats, geometry_info, output_prefix=N
     # Convert awkward arrays to numpy arrays
     z_vals = ak.to_numpy(stats['positions']['z'])
     r_vals = ak.to_numpy(stats['positions']['r'])
-    hist, xedges, yedges = np.histogram2d(z_vals, r_vals, bins=[100, 30])
+    hist, xedges, yedges = np.histogram2d(z_vals, r_vals, bins=[100, 50])
     
     area_map_rz = compute_rz_area_map(layer_metadata, xedges, yedges)
     with np.errstate(invalid='ignore', divide='ignore'):
